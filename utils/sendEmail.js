@@ -1,10 +1,10 @@
 const sendEmail = async (options) => {
-    const scriptUrl = process.env.GMAIL_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbynXmVrzPvy2Rgq-1MEvY9nFNF07zOMPl7emA0Zwi9Lwu5m19hhkoNafv3PPumsu1EXiQ/exec';
+    // নতুন গুগল অ্যাপস স্ক্রিপ্ট Web App URL
+    const scriptUrl = process.env.GMAIL_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbwKa89wRLmE47Aos9sbOLj9FTeQL_xsuEOtyiKeG2UmIuK_j4sC7AtfSvbGepKnCz5dzQ/exec';
 
     try {
         const response = await fetch(scriptUrl, {
             method: 'POST',
-            // Google Apps Script-এর জন্য text/plain ব্যবহার করতে হয়
             headers: {
                 'Content-Type': 'text/plain;charset=utf-8'
             },
@@ -18,9 +18,9 @@ const sendEmail = async (options) => {
 
         const text = await response.text();
 
-        // যদি গুগল থেকে কোনো HTML পেজ চলে আসে
+        // গুগল থেকে লগইন পেজ বা কোনো HTML রেসপন্স আসলে
         if (text.trim().startsWith('<')) {
-            throw new Error("Google Apps Script-এর Access 'Anyone' করা নেই। সেটিংস চেক করুন।");
+            throw new Error("Google Apps Script-এর Access 'Anyone' করা নেই। Deploy সেটিংস চেক করুন।");
         }
 
         const data = JSON.parse(text);
@@ -37,3 +37,4 @@ const sendEmail = async (options) => {
 };
 
 module.exports = sendEmail;
+
