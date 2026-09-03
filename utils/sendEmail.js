@@ -1,27 +1,26 @@
-const nodemailer = require('nodemailer');
-
 const sendEmail = async (options) => {
-    const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false, // Port 587 এর জন্য false
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
+    // আপনার তৈরি করা Google Apps Script Web App URL
+    const scriptUrl = process.env.GMAIL_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbynXmVrzPvy2Rgq-1MEvY9nFNF07zOMPl7emA0Zwi9Lwu5m19hhkoNafv3PPumsu1EXiQ/exec';
+
+    const response = await fetch(scriptUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
         },
-        tls: {
-            rejectUnauthorized: false
-        }
+        body: JSON.stringify({
+            to: options.email,
+            subject: options.subject,
+            html: options.html
+        })
     });
 
-    const mailOptions = {
-        from: `"NEXA Wallet" <${process.env.EMAIL_USER}>`,
-        to: options.email,
-        subject: options.subject,
-        html: options.html
-    };
+    const data = await response.json();
 
-    return await transporter.sendMail(mailOptions);
+    if (!data.success) {
+        throw new Error(data.error || 'ইমেইল পাঠাতে ব্যর্থ হয়েছে');
+    }
+
+    return data;
 };
 
 module.exports = sendEmail;
