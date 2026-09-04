@@ -1,10 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
-const authMiddleware = require('../middleware/auth'); // Ensure you have this middleware
+const adminController = require('../controllers/adminController');
+const adminAuth = require('../middleware/adminAuth'); // Ensure admin auth middleware is used
 
-router.post('/register', authController.register);
-router.post('/login', authController.login);
-router.post('/set-pin', authMiddleware, authController.setPin);
+router.post('/approve-deposit', adminAuth, adminController.approveDeposit);
+router.post('/approve-cashout', adminAuth, adminController.approveCashOut);
 
 module.exports = router;
