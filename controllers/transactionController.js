@@ -1,109 +1,108 @@
-const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 
-// ১. P2P USD Transfer (Internal Transfer)
-exports.transferP2P = async (req, res) => {
+// 1. Request Deposit (Cash-in)
+exports.requestDeposit = async (req, res) => {
     try {
-        const { receiverAccountNumber, amountUSD } = req.body;
-        const senderId = req.user.id;
+        const { amount, trxId } = req.body;
+        
+        // Check if TrxID already used
+        const existingTrx = await Transaction.findOne({ trxId });
+        if (existingTrx) return res.status(400).json({ message: 'Transaction ID already used' });
 
-        if (amountUSD <= 0) {
-            return res.status(400).json({ success: false, message: 'সঠিক পরিমাণ প্রদান করুন!' });
-        }
+        const transaction = new Transaction({
+            user: req.user.id,
+            type: 'deposit',
+            amount,
+            trxId,
+            status: 'pending'
+        });
+        await transaction.save();
+        res.status(201).json({ message: 'Deposit request submitted successfully. Under review.', transaction });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
-        const sender = await User.findById(senderId);
-        const receiver = await User.findOne({ accountNumber: receiverAccountNumber });
+// 2. Resolve UID for Trust Factor (Show name before sending money)
+exports.resolveUid = async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const user = await User.findOne({ uid }).select('name uid');
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
-        if (!receiver) {
-            return res.status(404).json({ success: false, message: 'গ্রাহকের অ্যাকাউন্ট পাওয়া যায়নি!' });
-        }
+// 3. Send Money (P2P Transfer)
+exports.sendMoney = async (req, res) => {
+    try {
+        const { receiverUid, amount, pin } = req.body;
+        const sender = await User.findById(req.user.id);
+        const receiver = await User.findOne({ uid: receiverUid });
 
-        if (sender.accountNumber === receiverAccountNumber) {
-            return res.status(400).json({ success: false, message: 'নিজের অ্যাকাউন্টে ট্রান্সফার সম্ভব নয়!' });
-        }
+        if (!receiver) return res.status(404).json({ message: 'Receiver not found' });
+        if (sender.uid === receiverUid) return res.status(400).json({ message: 'Cannot send money to yourself' });
+        if (sender.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
 
-        if (sender.balanceUSD < amountUSD) {
-            return res.status(400).json({ success: false, message: 'পর্যাপ্ত ব্যালেন্স নেই!' });
-        }
+        // Verify PIN
+        const isPinValid = await bcrypt.compare(pin, sender.pin);
+        if (!isPinValid) return res.status(400).json({ message: 'Invalid PIN' });
 
-        // ব্যালেন্স আপডেট
-        sender.balanceUSD -= Number(amountUSD);
-        receiver.balanceUSD += Number(amountUSD);
+        // Deduct from sender, add to receiver
+        sender.balance -= amount;
+        receiver.balance += amount;
 
         await sender.save();
         await receiver.save();
 
-        // ট্রানজেকশন রেকর্ড
+        // Record Transaction
         const transaction = new Transaction({
-            sender: sender._id,
-            receiver: receiver._id,
-            type: 'P2P_TRANSFER',
-            amountUSD,
-            status: 'completed'
+            user: sender._id,
+            type: 'transfer',
+            amount,
+            senderUid: sender.uid,
+            receiverUid: receiver.uid,
+            status: 'approved' // Instant approval for P2P
         });
-
         await transaction.save();
 
-        res.json({ success: true, message: 'ট্রান্সফার সফল হয়েছে!', transaction });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.json({ message: 'Transfer successful', transaction, newBalance: sender.balance });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
 
-// ২. bKash Deposit Request (Admin Verification Pending)
-exports.depositBkash = async (req, res) => {
+// 4. Request Cashout
+exports.requestCashOut = async (req, res) => {
     try {
-        const { amountBDT, amountUSD, bkashTrxId, bkashNumber } = req.body;
-
-        const transaction = new Transaction({
-            sender: req.user.id,
-            type: 'BKASH_DEPOSIT',
-            amountBDT,
-            amountUSD,
-            bkashTrxId,
-            bkashNumber,
-            status: 'pending' // অ্যাডমিন অ্যাপ্রুভালের জন্য ওয়েট করবে
-        });
-
-        await transaction.save();
-
-        res.status(201).json({ 
-            success: true, 
-            message: 'ডিপোজিট রিকোয়েস্ট জমা হয়েছে! অ্যাডমিন ভেরিফাই করলে ব্যালেন্স যোগ হবে।', 
-            transaction 
-        });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
-    }
-};
-
-// ৩. bKash Withdraw Request
-exports.withdrawBkash = async (req, res) => {
-    try {
-        const { amountUSD, amountBDT, bkashNumber } = req.body;
+        const { amount, paymentMethodNumber, pin } = req.body;
         const user = await User.findById(req.user.id);
 
-        if (user.balanceUSD < amountUSD) {
-            return res.status(400).json({ success: false, message: 'পর্যাপ্ত ব্যালেন্স নেই!' });
-        }
+        if (user.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
+
+        // Verify PIN
+        const isPinValid = await bcrypt.compare(pin, user.pin);
+        if (!isPinValid) return res.status(400).json({ message: 'Invalid PIN' });
+
+        // Deduct balance immediately for pending request
+        user.balance -= amount;
+        await user.save();
 
         const transaction = new Transaction({
-            sender: req.user.id,
-            type: 'BKASH_WITHDRAW',
-            amountUSD,
-            amountBDT,
-            bkashNumber,
+            user: user._id,
+            type: 'cashout',
+            amount,
+            paymentMethodNumber,
             status: 'pending'
         });
-
         await transaction.save();
 
-        res.status(201).json({ 
-            success: true, 
-            message: 'উইথড্র রিকোয়েস্ট সফল হয়েছে! অ্যাডমিন প্রসেস করবে।', 
-            transaction 
-        });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(201).json({ message: 'Cashout request submitted. Admin will process it shortly.', newBalance: user.balance });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
