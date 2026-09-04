@@ -1,10 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
-const { transferP2P, depositBkash, withdrawBkash } = require('../controllers/transactionController');
+const transactionController = require('../controllers/transactionController');
+const authMiddleware = require('../middleware/auth');
 
-router.post('/transfer', auth, transferP2P);
-router.post('/deposit', auth, depositBkash);
-router.post('/withdraw', auth, withdrawBkash);
+// Trust factor endpoint
+router.get('/resolve-uid/:uid', authMiddleware, transactionController.resolveUid);
+
+// Core transactional endpoints
+router.post('/deposit', authMiddleware, transactionController.requestDeposit);
+router.post('/transfer', authMiddleware, transactionController.sendMoney);
+router.post('/cashout', authMiddleware, transactionController.requestCashOut);
 
 module.exports = router;
