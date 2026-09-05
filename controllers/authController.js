@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const sendEmail = require('../utils/sendEmail'); // আপনার কাস্টম ইমেইল সেন্ডার ইম্পোর্ট করা হলো
 
 // ১. Send Email OTP (Sign Up Step 1)
 exports.sendEmailOtp = async (req, res) => {
@@ -21,8 +22,17 @@ exports.sendEmailOtp = async (req, res) => {
         
         await user.save();
 
-        // TODO: In production, integrate Nodemailer here to send 'otp' to 'email'
-        console.log(`[DEMO] Email OTP for ${email}: ${otp}`);
+        // আপনার Google Apps Script ইউটিলিটি দিয়ে ইমেইল পাঠানো
+        await sendEmail({
+            email: email,
+            subject: 'Welcome to Nexa - Your OTP Code',
+            html: `<div style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
+                    <h2>Welcome to Nexa Wallet</h2>
+                    <p>Your verification code is:</p>
+                    <h1 style="color: #15d86a; letter-spacing: 5px;">${otp}</h1>
+                    <p>This code will expire in 10 minutes. Please do not share this with anyone.</p>
+                   </div>`
+        });
 
         res.status(200).json({ message: 'OTP sent to email successfully' });
     } catch (error) {
@@ -92,7 +102,7 @@ exports.login = async (req, res) => {
 // 8. Send WhatsApp OTP (For KYC & UID Generation)
 exports.sendWhatsAppOtp = async (req, res) => {
     try {
-        const { userId, phone } = req.body; // In real app, get userId from auth middleware
+        const { userId, phone } = req.body; 
         const user = await User.findById(userId);
         
         if (!user) return res.status(404).json({ message: 'User not found' });
@@ -102,7 +112,7 @@ exports.sendWhatsAppOtp = async (req, res) => {
         user.waOtpExpires = Date.now() + 10 * 60 * 1000;
         await user.save();
 
-        // TODO: In production, integrate WhatsApp API (Twilio/MessageBird) here
+        // TODO: In production, integrate WhatsApp API (Twilio/MessageBird) here to send to 'phone'
         console.log(`[DEMO] WhatsApp OTP for ${phone}: ${otp}`);
 
         res.status(200).json({ message: 'OTP sent to WhatsApp' });
