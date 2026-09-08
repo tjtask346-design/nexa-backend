@@ -1,12 +1,17 @@
-const User = require('../models/User'); // আপনার User model path অনুযায়ী মিলিয়ে নেবেন
+const User = require('../models/User'); // আপনার User model path অনুযায়ী মিলিয়ে নিন
 const bcrypt = require('bcryptjs');
 
-// ১. রেজিস্ট্রেশন এপিআই (POST /api/auth/register)
 exports.register = async (req, res) => {
     try {
-        const { fullName, identifier, pin } = req.body;
+        // ১. সার্ভার টার্মিনালে অ্যাপ থেকে আসা ডাটা দেখার জন্য লগ
+        console.log("Received Register Body:", req.body);
 
-        // তথ্য চেক করা
+        // ২. অ্যাপ থেকে যে নামেই আসুক তা গ্রহণ করা (Flexibility)
+        const fullName = req.body.fullName || req.body.name;
+        const identifier = req.body.identifier || req.body.email || req.body.phone;
+        const pin = req.body.pin || req.body.password;
+
+        // ৩. ভ্যালিডেশন চেক
         if (!fullName || !identifier || !pin) {
             return res.status(400).json({
                 success: false,
@@ -14,27 +19,20 @@ exports.register = async (req, res) => {
             });
         }
 
-        if (pin.length !== 5) {
-            return res.status(400).json({
-                success: false,
-                message: "পিন অবশ্যই ৫ ডিজিটের হতে হবে"
-            });
-        }
-
-        // ইমেইল/ফোন নম্বরটি আগে থেকে আছে কিনা দেখা
+        // ৪. ইউজার ইতিমধ্যে আছে কিনা চেক
         const existingUser = await User.findOne({ identifier });
         if (existingUser) {
             return res.status(400).json({
                 success: false,
-                message: "এই ইমেইল বা ফোন নম্বরটি ইতিমধ্যে নিবন্ধিত"
+                message: "এই ইমেইল বা ফোন নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে"
             });
         }
 
-        // পিন এনক্রিপ্ট/হ্যাশ করা (নিরাপত্তার জন্য)
+        // ৫. পিন হ্যাশ করা
         const salt = await bcrypt.genSalt(10);
         const hashedPin = await bcrypt.hash(pin, salt);
 
-        // নতুন ইউজার ডাটাবেজে সংরক্ষণ
+        // ৬. ডাটাবেজে সেভ করা
         const newUser = new User({
             fullName,
             identifier,
@@ -50,55 +48,6 @@ exports.register = async (req, res) => {
 
     } catch (error) {
         console.error("Register Error:", error);
-        return res.status(500).json({
-            success: false,
-            message: "সার্ভার এরর, আবার চেষ্টা করুন"
-        });
-    }
-};
-
-// ২. লগইন এপিআই (POST /api/auth/login)
-exports.login = async (req, res) => {
-    try {
-        const { identifier, pin } = req.body;
-
-        if (!identifier || !pin) {
-            return res.status(400).json({
-                success: false,
-                message: "ইমেইল/ফোন এবং পিন প্রদান করুন"
-            });
-        }
-
-        // ইউজার খোঁজা
-        const user = await User.findOne({ identifier });
-        if (!user) {
-            return res.status(400).json({
-                success: false,
-                message: "অ্যাকাউন্ট খুঁজে পাওয়া যায়নি"
-            });
-        }
-
-        // পিন যাচাই করা
-        const isMatch = await bcrypt.compare(pin, user.pin);
-        if (!isMatch) {
-            return res.status(400).json({
-                success: false,
-                message: "ভুল পিন দিয়েছেন"
-            });
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: "লগইন সফল হয়েছে!",
-            user: {
-                id: user._id,
-                fullName: user.fullName,
-                identifier: user.identifier
-            }
-        });
-
-    } catch (error) {
-        console.error("Login Error:", error);
         return res.status(500).json({
             success: false,
             message: "সার্ভার এরর, আবার চেষ্টা করুন"
