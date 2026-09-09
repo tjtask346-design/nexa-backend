@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const connectDB = require('./db');
+const connectDB = require('./config/db'); // config ফোল্ডার থেকে db.js নিয়ে আসা হচ্ছে
 
 const authRoutes = require('./routes/auth');
 const transferRoutes = require('./routes/transfer');
