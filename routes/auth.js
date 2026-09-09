@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 
-// Clean endpoints for Android App
-router.post('/register', authController.register);
+router.post('/send-otp', authController.sendEmailOtp);
+router.post('/verify-otp', authController.verifyOtpAndRegister);
 router.post('/login', authController.login);
 
 module.exports = router;
