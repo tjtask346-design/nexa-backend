@@ -2,13 +2,12 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
 const app = express();
 app.use(express.json());
 
-// unhandled Error থেকে সার্ভার ক্র্যাশ হওয়া ঠেকানোর জন্য
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (err) => console.error('Unhandled Rejection:', err));
 
@@ -39,7 +38,8 @@ async function connectToWhatsApp() {
         sock = makeWASocket({
             logger: pino({ level: 'silent' }),
             auth: state,
-            browser: ["Nexa Wallet Bot", "Chrome", "1.0.0"]
+            // হোয়াটসঅ্যাপ অনুমোদিত ব্রাউজার প্রোফাইল
+            browser: Browsers.ubuntu('Chrome')
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -49,21 +49,24 @@ async function connectToWhatsApp() {
                 try {
                     const pairingCode = await sock.requestPairingCode(BOT_PHONE_NUMBER);
                     console.log('\n=========================================');
-                    console.log(`🔑 আপনার WhatsApp Pairing Code: ${pairingCode}`);
+                    console.log(`🔑 নতুন WhatsApp Pairing Code: ${pairingCode}`);
+                    console.log('⚠️ দ্রুত কোডটি ফোনে ইনপুট দিন (মেয়াদ ১ মিনিট)');
                     console.log('=========================================\n');
                 } catch (err) {
                     console.error('Pairing Code আনতে সমস্যা:', err.message);
                 }
-            }, 5000);
+            }, 6000);
         }
 
         sock.ev.on('connection.update', (update) => {
             const { connection, lastDisconnect } = update;
             if (connection === 'close') {
-                const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+                const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                console.log(`কানেকশন বন্ধ হয়েছে (Status: ${statusCode})। রিকানেক্ট করা হচ্ছে: ${shouldReconnect}`);
                 if (shouldReconnect) connectToWhatsApp();
             } else if (connection === 'open') {
-                console.log('✅ WhatsApp Baileys সফলভাবে কানেক্ট হয়েছে!');
+                console.log('🎉 WhatsApp Baileys সফলভাবে কানেক্ট হয়েছে!');
             }
         });
     } catch (err) {
@@ -129,4 +132,3 @@ app.post('/verify-otp', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
