@@ -2,16 +2,13 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
-const pino = require('pino');
 
 const app = express();
 app.use(express.json());
 
+// Global Error Handler
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (err) => console.error('Unhandled Rejection:', err));
-
-const BOT_PHONE_NUMBER = "380778774165"; 
 
 // MongoDB Connection
 const MONGO_URI = process.env.MONGO_URI || 'YOUR_ACTUAL_MONGODB_URI_HERE';
@@ -19,112 +16,90 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('⚠️ MongoDB Connection Error:', err.message));
 
-// User Schema
+// User Schema Definition
 const userSchema = new mongoose.Schema({
     fullName: { type: String, required: true },
-    identifier: { type: String, required: true, unique: true },
+    identifier: { type: String, required: true, unique: true }, // Email or Phone
     pin: { type: String, required: true },
     createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
 
-const otpStore = new Map();
-let sock;
-
-async function connectToWhatsApp() {
-    try {
-        const { state, saveCreds } = await useMultiFileAuthState('baileys_auth_info');
-
-        sock = makeWASocket({
-            logger: pino({ level: 'silent' }),
-            auth: state,
-            // হোয়াটসঅ্যাপ অনুমোদিত ব্রাউজার প্রোফাইল
-            browser: Browsers.ubuntu('Chrome')
-        });
-
-        sock.ev.on('creds.update', saveCreds);
-
-        if (!sock.authState.creds.registered) {
-            setTimeout(async () => {
-                try {
-                    const pairingCode = await sock.requestPairingCode(BOT_PHONE_NUMBER);
-                    console.log('\n=========================================');
-                    console.log(`🔑 নতুন WhatsApp Pairing Code: ${pairingCode}`);
-                    console.log('⚠️ দ্রুত কোডটি ফোনে ইনপুট দিন (মেয়াদ ১ মিনিট)');
-                    console.log('=========================================\n');
-                } catch (err) {
-                    console.error('Pairing Code আনতে সমস্যা:', err.message);
-                }
-            }, 6000);
-        }
-
-        sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect } = update;
-            if (connection === 'close') {
-                const statusCode = (lastDisconnect?.error)?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`কানেকশন বন্ধ হয়েছে (Status: ${statusCode})। রিকানেক্ট করা হচ্ছে: ${shouldReconnect}`);
-                if (shouldReconnect) connectToWhatsApp();
-            } else if (connection === 'open') {
-                console.log('🎉 WhatsApp Baileys সফলভাবে কানেক্ট হয়েছে!');
-            }
-        });
-    } catch (err) {
-        console.error('WhatsApp Socket Connection Error:', err);
-    }
-}
-
-connectToWhatsApp();
-
-// Send OTP
-app.post('/send-otp', async (req, res) => {
-    try {
-        const { identifier } = req.body;
-        if (!identifier) return res.status(400).json({ success: false, message: 'ইমেইল বা নম্বর দিন' });
-
-        let formattedPhone = identifier.replace(/[^0-9]/g, '');
-        if (formattedPhone.startsWith('0')) formattedPhone = '88' + formattedPhone;
-
-        const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        otpStore.set(identifier, { otp: generatedOtp, expiresAt: Date.now() + 5 * 60 * 1000 });
-
-        if (!sock) return res.status(500).json({ success: false, message: 'WhatsApp বট এখনও প্রস্তুত নয়' });
-
-        await sock.sendMessage(`${formattedPhone}@s.whatsapp.net`, {
-            text: `আপনার Nexa Wallet OTP: *${generatedOtp}* (মেয়াদ ৫ মিনিট)।`
-        });
-
-        return res.json({ success: true, message: 'WhatsApp-এ OTP পাঠানো হয়েছে' });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: 'OTP পাঠাতে ব্যর্থ হয়েছে' });
-    }
+// Base Route
+app.get('/', (req, res) => {
+    res.send('🚀 Nexa Wallet API is Running Cleanly!');
 });
 
-// Verify OTP
-app.post('/verify-otp', async (req, res) => {
+// Register User (After Firebase OTP Verification on Android App)
+app.post('/register', async (req, res) => {
     try {
-        const { fullName, identifier, otp, pin } = req.body;
-        const storedData = otpStore.get(identifier);
+        const { fullName, identifier, pin } = req.body;
 
-        if (!storedData) return res.status(400).json({ success: false, message: 'OTP অনুরোধ পাওয়া যায়নি' });
-        if (Date.now() > storedData.expiresAt) {
-            otpStore.delete(identifier);
-            return res.status(400).json({ success: false, message: 'OTP-এর মেয়াদ শেষ' });
+        if (!fullName || !identifier || !pin) {
+            return res.status(400).json({ success: false, message: 'সবগুলো তথ্য সঠিকভাবে প্রদান করুন' });
         }
-        if (storedData.otp !== otp) return res.status(400).json({ success: false, message: 'ভুল OTP' });
 
-        otpStore.delete(identifier);
-
-        const hashedPin = await bcrypt.hash(pin, 10);
+        // Check existing user
         let user = await User.findOne({ identifier });
-        if (user) return res.status(400).json({ success: false, message: 'ইউজার ইতিমধ্যে নিবন্ধিত' });
+        if (user) {
+            return res.status(400).json({ success: false, message: 'এই ইমেইল বা নম্বর দিয়ে ইতিমধ্যে অ্যাকাউন্ট রয়েছে' });
+        }
 
+        // Encrypt PIN
+        const hashedPin = await bcrypt.hash(pin, 10);
+
+        // Save User in MongoDB
         user = new User({ fullName, identifier, pin: hashedPin });
         await user.save();
 
-        const token = jwt.sign({ userId: user._id, identifier: user.identifier }, process.env.JWT_SECRET || 'secret_key', { expiresIn: '7d' });
+        // Generate Login Token
+        const token = jwt.sign(
+            { userId: user._id, identifier: user.identifier },
+            process.env.JWT_SECRET || 'nexa_secret_key',
+            { expiresIn: '30d' }
+        );
 
-        return res.json({ success: true, message: 'রেজিস্ট্রেশন সম্পূর্ণ হয়েছে!', token, user: { id: user._id, fullName: user.fullName } });
+        return res.status(201).json({
+            success: true,
+            message: 'রেজিস্ট্রেশন সফল হয়েছে!',
+            token,
+            user: { id: user._id, fullName: user.fullName, identifier: user.identifier }
+        });
+
+    } catch (error) {
+        console.error('Registration Error:', error);
+        return res.status(500).json({ success: false, message: 'সার্ভারে সমস্যা হয়েছে' });
+    }
+});
+
+// Login User
+app.post('/login', async (req, res) => {
+    try {
+        const { identifier, pin } = req.body;
+
+        const user = await User.findOne({ identifier });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'ইউজার পাওয়া যায়নি' });
+        }
+
+        const isMatch = await bcrypt.compare(pin, user.pin);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: 'ভুল পিন দিয়েছেন' });
+        }
+
+        const token = jwt.sign(
+            { userId: user._id, identifier: user.identifier },
+            process.env.JWT_SECRET || 'nexa_secret_key',
+            { expiresIn: '30d' }
+        );
+
+        return res.json({
+            success: true,
+            message: 'লগইন সফল হয়েছে!',
+            token,
+            user: { id: user._id, fullName: user.fullName, identifier: user.identifier }
+        });
+
     } catch (error) {
         return res.status(500).json({ success: false, message: 'সার্ভার এরর' });
     }
