@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 
 // MongoDB Connection (আপনার আসল MongoDB URI দিয়ে পরিবর্তন করুন)
-mongoose.connect(process.env.MONGO_URI || 'mongodb+srv://tjtask346_db_user:7fISzfOdndecMkY0@nexa-cluster.xlyjmct.mongodb.net/nexa_db?appName=nexa-cluster')
+mongoose.connect(process.env.MONGO_URI || 'YOUR_MONGO_URI_HERE')
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('MongoDB Connection Error:', err));
 
