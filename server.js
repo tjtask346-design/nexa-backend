@@ -30,17 +30,20 @@ app.get('/', (req, res) => {
     res.send('🚀 Nexa Wallet API is Running Cleanly!');
 });
 
-// Register User (After Firebase OTP Verification on Android App)
-app.post('/register', async (req, res) => {
+// Register User (App Request Matches: /api/auth/register)
+app.post('/api/auth/register', async (req, res) => {
     try {
-        const { fullName, identifier, pin } = req.body;
+        const { fullName, identifier, email, phone, pin } = req.body;
 
-        if (!fullName || !identifier || !pin) {
+        // অ্যাপ থেকে email/phone অথবা identifier যাই আসুক তা গ্রহণ করবে
+        const userIdentifier = identifier || email || phone;
+
+        if (!fullName || !userIdentifier || !pin) {
             return res.status(400).json({ success: false, message: 'সবগুলো তথ্য সঠিকভাবে প্রদান করুন' });
         }
 
         // Check existing user
-        let user = await User.findOne({ identifier });
+        let user = await User.findOne({ identifier: userIdentifier });
         if (user) {
             return res.status(400).json({ success: false, message: 'এই ইমেইল বা নম্বর দিয়ে ইতিমধ্যে অ্যাকাউন্ট রয়েছে' });
         }
@@ -49,7 +52,7 @@ app.post('/register', async (req, res) => {
         const hashedPin = await bcrypt.hash(pin, 10);
 
         // Save User in MongoDB
-        user = new User({ fullName, identifier, pin: hashedPin });
+        user = new User({ fullName, identifier: userIdentifier, pin: hashedPin });
         await user.save();
 
         // Generate Login Token
@@ -73,11 +76,12 @@ app.post('/register', async (req, res) => {
 });
 
 // Login User
-app.post('/login', async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
     try {
-        const { identifier, pin } = req.body;
+        const { identifier, email, phone, pin } = req.body;
+        const userIdentifier = identifier || email || phone;
 
-        const user = await User.findOne({ identifier });
+        const user = await User.findOne({ identifier: userIdentifier });
         if (!user) {
             return res.status(404).json({ success: false, message: 'ইউজার পাওয়া যায়নি' });
         }
@@ -107,3 +111,4 @@ app.post('/login', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
