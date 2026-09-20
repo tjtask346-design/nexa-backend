@@ -1,119 +1,134 @@
-const User = require('../models/User');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 const admin = require('../firebaseAdmin');
+const sendEmail = require('../utils/sendEmail');
 
-// ১. Firebase দিয়ে ভেরিফাই করে রেজিস্ট্রেশন
-exports.registerWithFirebase = async (req, res) => {
-    try {
-        const { idToken, fullName, pin } = req.body;
-
-        if (!idToken || !fullName || !pin) {
-            return res.status(400).json({ success: false, message: 'সবগুলো তথ্য প্রদান করুন' });
-        }
-
-        // Firebase Token ভেরিফাই করা
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
-        const { uid, email, phone_number } = decodedToken;
-
-        // পূর্বে একাউন্ট আছে কিনা যাচাই
-        let existingUser = await User.findOne({
-            $or: [
-                { uid: uid },
-                ...(email ? [{ email: email.toLowerCase() }] : []),
-                ...(phone_number ? [{ phone: phone_number }] : [])
-            ]
-        });
-
-        if (existingUser) {
-            return res.status(400).json({ success: false, message: 'এই অ্যাকাউন্টটি ইতিমধ্যে নিবন্ধিত' });
-        }
-
-        // 5-digit PIN এনক্রিপ্ট করা
-        const hashedPin = await bcrypt.hash(pin.toString(), 10);
-        const accountNumber = 'NX-' + Math.floor(100000 + Math.random() * 900000);
-
-        const newUser = new User({
-            uid: uid,
-            fullName: fullName,
-            email: email ? email.toLowerCase() : null,
-            phone: phone_number || null,
-            pin: hashedPin,
-            accountNumber: accountNumber,
-            balance: 0.00
-        });
-
-        await newUser.save();
-
-        const secret = process.env.JWT_SECRET || 'nexa_secret_key_123';
-        const token = jwt.sign({ id: newUser._id, uid: newUser.uid }, secret, { expiresIn: '30d' });
-
-        return res.status(201).json({
-            success: true,
-            message: 'রেজিস্ট্রেশন সফল হয়েছে!',
-            token,
-            user: {
-                id: newUser._id,
-                uid: newUser.uid,
-                fullName: newUser.fullName,
-                email: newUser.email,
-                phone: newUser.phone,
-                accountNumber: newUser.accountNumber,
-                balance: newUser.balance
-            }
-        });
-
-    } catch (error) {
-        console.error('FIREBASE REGISTRATION ERROR:', error);
-        return res.status(500).json({ success: false, message: 'সার্ভার এরর: ' + error.message });
-    }
+// Generate unique 10-digit account number using crypto.randomInt (secure)
+const generateUniqueAccountNumber = async () => {
+  let isUnique = false;
+  let accountNumber = '';
+  while (!isUnique) {
+    // 1000000000 to 9999999999
+    const num = crypto.randomInt(1000000000, 10000000000);
+    accountNumber = num.toString();
+    const exists = await User.findOne({ accountNumber });
+    if (!exists) isUnique = true;
+  }
+  return accountNumber;
 };
 
-// ২. PIN দিয়ে লগইন
-exports.loginWithPin = async (req, res) => {
-    try {
-        const { identifier, pin } = req.body;
+const signToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+};
 
-        if (!identifier || !pin) {
-            return res.status(400).json({ success: false, message: 'ফোন/ইমেইল এবং পিন প্রদান করুন' });
-        }
+// POST /api/auth/register-firebase
+// Body: { idToken, fullName, pin } - Email only, no phone
+exports.registerWithFirebase = async (req, res) => {
+  try {
+    const { idToken, fullName, pin } = req.body;
 
-        const user = await User.findOne({
-            $or: [
-                { email: identifier.toLowerCase() },
-                { phone: identifier },
-                { accountNumber: identifier },
-                { uid: identifier }
-            ]
-        });
+    if (!idToken) return res.status(400).json({ success: false, message: 'Firebase idToken required' });
+    if (!fullName || fullName.trim().length < 2) return res.status(400).json({ success: false, message: 'Full name required' });
+    if (!pin || !/^\d{5}$/.test(pin)) return res.status(400).json({ success: false, message: 'PIN must be exactly 5 digits' });
 
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'অ্যাকাউন্ট পাওয়া যায়নি' });
-        }
+    // Verify Firebase token
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const email = decoded.email?.toLowerCase();
+    const uid = decoded.uid;
 
-        const isMatch = await bcrypt.compare(pin.toString(), user.pin);
-        if (!isMatch) {
-            return res.status(400).json({ success: false, message: 'ভুল পিন দিয়েছেন' });
-        }
+    if (!email) return res.status(400).json({ success: false, message: 'Email not found in Firebase token' });
 
-        const secret = process.env.JWT_SECRET || 'nexa_secret_key_123';
-        const token = jwt.sign({ id: user._id, uid: user.uid }, secret, { expiresIn: '30d' });
-
-        return res.json({
-            success: true,
-            message: 'লগইন সফল হয়েছে!',
-            token,
-            user: {
-                id: user._id,
-                uid: user.uid,
-                fullName: user.fullName,
-                email: user.email,
-                phone: user.phone,
-                accountNumber: user.accountNumber,
-                balance: user.balance
-            }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: 'সার্ভার এরর: ' + error.message });
+    let user = await User.findOne({ $or: [{ email }, { uid }] });
+    if (user) {
+      return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
+
+    const hashedPin = await bcrypt.hash(pin, 12);
+    const accountNumber = await generateUniqueAccountNumber();
+
+    user = await User.create({
+      fullName: fullName.trim(),
+      email,
+      pin: hashedPin,
+      uid,
+      accountNumber,
+      emailVerified: decoded.email_verified || false,
+      balance: 0
+    });
+
+    const token = signToken(user._id);
+
+    // Optional welcome email (non-blocking)
+    if (process.env.SMTP_HOST) {
+      sendEmail({
+        to: email,
+        subject: 'Welcome to Nexa Wallet',
+        text: `Hi ${fullName}, your account ${accountNumber} is created. Balance: $0`
+      }).catch(()=>{});
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created',
+      token,
+      user: { 
+        id: user._id, 
+        email: user.email, 
+        fullName: user.fullName, 
+        accountNumber: user.accountNumber, 
+        role: user.role,
+        balance: user.balance
+      }
+    });
+
+  } catch (err) {
+    console.error('register error', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// POST /api/auth/login-pin
+// Body: { email, pin } - Email Only
+exports.loginWithPin = async (req, res) => {
+  try {
+    const { email, pin } = req.body;
+    if (!email || !pin) return res.status(400).json({ success: false, message: 'Email and PIN required' });
+    if (!/^\d{5}$/.test(pin)) return res.status(400).json({ success: false, message: 'PIN must be 5 digits' });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const isMatch = await bcrypt.compare(pin, user.pin);
+    if (!isMatch) return res.status(401).json({ success: false, message: 'ভুল PIN' });
+
+    const token = signToken(user._id);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        accountNumber: user.accountNumber,
+        role: user.role,
+        balance: user.balance,
+        uid: user.uid
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// GET /api/auth/me
+exports.getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-pin');
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 };
