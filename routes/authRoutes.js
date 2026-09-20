@@ -1,8 +1,11 @@
-const express = require('express');
-const router = express.Router();
-const { registerWithFirebase, loginWithPin } = require('../controllers/authController');
+const express=require('express');
+const router=express.Router();
+const authController=require('../controllers/authController');
+const auth=require('../middleware/auth');
 
-router.post('/register', registerWithFirebase);
-router.post('/login', loginWithPin);
+// Email only routes - phone removed
+router.post('/register-firebase', authController.registerWithFirebase);
+router.post('/login-pin', authController.loginWithPin);
+router.get('/me', auth, authController.getMe);
 
-module.exports = router;
+module.exports=router;
