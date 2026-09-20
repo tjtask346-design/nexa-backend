@@ -1,7 +1,8 @@
-module.exports = (req, res, next) => {
-    if (req.user && req.user.role === 'admin') {
-        next();
-    } else {
-        return res.status(403).json({ success: false, message: 'অ্যাক্সেস ডিনাইড! শুধুমাত্র অ্যাডমিন এটি ব্যবহার করতে পারবে।' });
-    }
+// Fixed admin check - must be after auth middleware
+module.exports = (req,res,next)=>{
+    if(req.user && req.user.role === 'admin') return next();
+    return res.status(403).json({ 
+      success:false, 
+      message:'Admin only - Access denied' 
+    });
 };
