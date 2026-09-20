@@ -1,108 +1,136 @@
-const Transaction = require('../models/Transaction');
+const mongoose = require('mongoose');
+const crypto = require('crypto');
 const User = require('../models/User');
-const bcrypt = require('bcryptjs');
+const Transaction = require('../models/Transaction');
 
-// 1. Request Deposit (Cash-in)
+// POST /api/transaction/deposit/request
 exports.requestDeposit = async (req, res) => {
-    try {
-        const { amount, trxId } = req.body;
-        
-        // Check if TrxID already used
-        const existingTrx = await Transaction.findOne({ trxId });
-        if (existingTrx) return res.status(400).json({ message: 'Transaction ID already used' });
+  try {
+    const { amount, trxId, paymentMethodNumber } = req.body;
+    if (!amount || amount < 10) return res.status(400).json({ success: false, message: 'Min deposit $10' });
+    if (!trxId) return res.status(400).json({ success: false, message: 'TrxID required' });
 
-        const transaction = new Transaction({
-            user: req.user.id,
-            type: 'deposit',
-            amount,
-            trxId,
-            status: 'pending'
-        });
-        await transaction.save();
-        res.status(201).json({ message: 'Deposit request submitted successfully. Under review.', transaction });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    const exists = await Transaction.findOne({ trxId });
+    if (exists) return res.status(400).json({ success: false, message: 'Duplicate TrxID' });
+
+    const trx = await Transaction.create({
+      user: req.user._id,
+      type: 'deposit',
+      amount,
+      trxId,
+      paymentMethodNumber,
+      status: 'pending'
+    });
+
+    res.json({ success: true, message: 'Deposit request submitted', transaction: trx });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// 2. Resolve UID for Trust Factor (Show name before sending money)
+// GET /api/transaction/resolve/:uid or accountNumber
 exports.resolveUid = async (req, res) => {
-    try {
-        const { uid } = req.params;
-        const user = await User.findOne({ uid }).select('name uid');
-        if (!user) return res.status(404).json({ message: 'User not found' });
-        res.json(user);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+  try {
+    const { uid } = req.params;
+    const user = await User.findOne({ 
+      $or: [{ uid }, { accountNumber: uid }, { email: uid.toLowerCase() }] 
+    }).select('fullName email accountNumber uid');
+    
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, user });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// 3. Send Money (P2P Transfer)
+// POST /api/transaction/send - ATOMIC with session
 exports.sendMoney = async (req, res) => {
-    try {
-        const { receiverUid, amount, pin } = req.body;
-        const sender = await User.findById(req.user.id);
-        const receiver = await User.findOne({ uid: receiverUid });
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { receiverUid, amount, pin } = req.body;
+    if (!receiverUid || !amount) return res.status(400).json({ success: false, message: 'Receiver and amount required' });
+    if (amount < 1) return res.status(400).json({ success: false, message: 'Min $1' });
 
-        if (!receiver) return res.status(404).json({ message: 'Receiver not found' });
-        if (sender.uid === receiverUid) return res.status(400).json({ message: 'Cannot send money to yourself' });
-        if (sender.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
-
-        // Verify PIN
-        const isPinValid = await bcrypt.compare(pin, sender.pin);
-        if (!isPinValid) return res.status(400).json({ message: 'Invalid PIN' });
-
-        // Deduct from sender, add to receiver
-        sender.balance -= amount;
-        receiver.balance += amount;
-
-        await sender.save();
-        await receiver.save();
-
-        // Record Transaction
-        const transaction = new Transaction({
-            user: sender._id,
-            type: 'transfer',
-            amount,
-            senderUid: sender.uid,
-            receiverUid: receiver.uid,
-            status: 'approved' // Instant approval for P2P
-        });
-        await transaction.save();
-
-        res.json({ message: 'Transfer successful', transaction, newBalance: sender.balance });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    // Verify PIN
+    const sender = await User.findById(req.user._id).session(session);
+    const bcrypt = require('bcryptjs');
+    const ok = await bcrypt.compare(pin, sender.pin);
+    if (!ok) {
+      await session.abortTransaction();
+      return res.status(401).json({ success: false, message: 'ভুল PIN' });
     }
+
+    if (sender.balance < amount) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+
+    const receiver = await User.findOne({ 
+      $or: [{ uid: receiverUid }, { accountNumber: receiverUid }, { email: receiverUid.toLowerCase() }] 
+    }).session(session);
+
+    if (!receiver) {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, message: 'Receiver not found' });
+    }
+    if (receiver._id.toString() === sender._id.toString()) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Cannot send to yourself' });
+    }
+
+    // Atomic balance update
+    sender.balance -= amount;
+    receiver.balance += amount;
+
+    await sender.save({ session });
+    await receiver.save({ session });
+
+    const trxId = 'TRX' + crypto.randomInt(100000, 999999) + Date.now().toString().slice(-6);
+
+    const trx = await Transaction.create([{
+      user: sender._id,
+      type: 'transfer',
+      amount,
+      status: 'approved',
+      senderUid: sender.uid,
+      receiverUid: receiver.uid,
+      trxId,
+      note: `Send to ${receiver.email}`
+    }], { session });
+
+    await session.commitTransaction();
+    res.json({ success: true, message: 'Sent successfully', transaction: trx[0], newBalance: sender.balance });
+
+  } catch (e) {
+    await session.abortTransaction();
+    res.status(500).json({ success: false, message: e.message });
+  } finally {
+    session.endSession();
+  }
 };
 
-// 4. Request Cashout
+// POST /api/transaction/cashout/request
 exports.requestCashOut = async (req, res) => {
-    try {
-        const { amount, paymentMethodNumber, pin } = req.body;
-        const user = await User.findById(req.user.id);
+  try {
+    const { amount, paymentMethodNumber } = req.body;
+    if (!amount || amount < 20) return res.status(400).json({ success: false, message: 'Min cashout $20' });
 
-        if (user.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
+    const user = await User.findById(req.user._id);
+    if (user.balance < amount) return res.status(400).json({ success: false, message: 'Insufficient balance' });
 
-        // Verify PIN
-        const isPinValid = await bcrypt.compare(pin, user.pin);
-        if (!isPinValid) return res.status(400).json({ message: 'Invalid PIN' });
+    const trx = await Transaction.create({
+      user: user._id,
+      type: 'cashout',
+      amount,
+      paymentMethodNumber,
+      status: 'pending'
+    });
 
-        // Deduct balance immediately for pending request
-        user.balance -= amount;
-        await user.save();
+    res.json({ success: true, message: 'Cashout requested', transaction: trx });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
 
-        const transaction = new Transaction({
-            user: user._id,
-            type: 'cashout',
-            amount,
-            paymentMethodNumber,
-            status: 'pending'
-        });
-        await transaction.save();
-
-        res.status(201).json({ message: 'Cashout request submitted. Admin will process it shortly.', newBalance: user.balance });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+// GET /api/transaction/my
+exports.myTransactions = async (req, res) => {
+  try {
+    const list = await Transaction.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(100);
+    res.json({ success: true, transactions: list });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
