@@ -3,14 +3,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const admin = require('../firebaseAdmin');
-const sendEmail = require('../utils/sendEmail');
 
 // Generate unique 10-digit account number using crypto.randomInt (secure)
 const generateUniqueAccountNumber = async () => {
   let isUnique = false;
   let accountNumber = '';
   while (!isUnique) {
-    // 1000000000 to 9999999999
     const num = crypto.randomInt(1000000000, 10000000000);
     accountNumber = num.toString();
     const exists = await User.findOne({ accountNumber });
@@ -20,11 +18,11 @@ const generateUniqueAccountNumber = async () => {
 };
 
 const signToken = (id) => {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET missing');
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
-// POST /api/auth/register-firebase
-// Body: { idToken, fullName, pin } - Email only, no phone
+// POST /api/auth/register-firebase - Email only, no phone
 exports.registerWithFirebase = async (req, res) => {
   try {
     const { idToken, fullName, pin } = req.body;
@@ -33,7 +31,6 @@ exports.registerWithFirebase = async (req, res) => {
     if (!fullName || fullName.trim().length < 2) return res.status(400).json({ success: false, message: 'Full name required' });
     if (!pin || !/^\d{5}$/.test(pin)) return res.status(400).json({ success: false, message: 'PIN must be exactly 5 digits' });
 
-    // Verify Firebase token
     const decoded = await admin.auth().verifyIdToken(idToken);
     const email = decoded.email?.toLowerCase();
     const uid = decoded.uid;
@@ -55,19 +52,11 @@ exports.registerWithFirebase = async (req, res) => {
       uid,
       accountNumber,
       emailVerified: decoded.email_verified || false,
-      balance: 0
+      balance: 0,
+      role: 'user'
     });
 
     const token = signToken(user._id);
-
-    // Optional welcome email (non-blocking)
-    if (process.env.SMTP_HOST) {
-      sendEmail({
-        to: email,
-        subject: 'Welcome to Nexa Wallet',
-        text: `Hi ${fullName}, your account ${accountNumber} is created. Balance: $0`
-      }).catch(()=>{});
-    }
 
     res.status(201).json({
       success: true,
@@ -89,8 +78,7 @@ exports.registerWithFirebase = async (req, res) => {
   }
 };
 
-// POST /api/auth/login-pin
-// Body: { email, pin } - Email Only
+// POST /api/auth/login-pin - Email Only
 exports.loginWithPin = async (req, res) => {
   try {
     const { email, pin } = req.body;
