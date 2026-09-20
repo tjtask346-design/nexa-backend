@@ -1,14 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const transactionController = require('../controllers/transactionController');
-const authMiddleware = require('../middleware/auth');
+const express=require('express');
+const router=express.Router();
+const c=require('../controllers/transactionController');
+const auth=require('../middleware/auth');
 
-// Trust factor endpoint
-router.get('/resolve-uid/:uid', authMiddleware, transactionController.resolveUid);
+// All protected
+router.use(auth);
 
-// Core transactional endpoints
-router.post('/deposit', authMiddleware, transactionController.requestDeposit);
-router.post('/transfer', authMiddleware, transactionController.sendMoney);
-router.post('/cashout', authMiddleware, transactionController.requestCashOut);
+router.post('/deposit/request', c.requestDeposit);
+router.get('/resolve/:uid', c.resolveUid);
+router.post('/send', c.sendMoney); // atomic transaction
+router.post('/cashout/request', c.requestCashOut);
+router.get('/my', c.myTransactions);
 
-module.exports = router;
+module.exports=router;
