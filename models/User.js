@@ -10,10 +10,20 @@ const userSchema = new mongoose.Schema({
     balance: { type: Number, default: 0, min: 0 },
     emailVerified: { type: Boolean, default: false },
     kycStatus: { type: String, enum: ['unverified', 'pending', 'verified', 'rejected'], default: 'unverified' },
+    kycDocs: {
+        nidNumber: { type: String },
+        frontUrl: { type: String },
+        backUrl: { type: String },
+        selfieUrl: { type: String }
+    },
+    wallets: {
+        bscAddress: { type: String, default: null },
+        walletIndex: { type: Number, default: null },
+        xpub: { type: String, default: null }
+    },
     balanceUSD: { type: Number, default: 0 },
     ltcBalance: { type: Number, default: 0 },
     ltcAddress: { type: String, default: null },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);
-
