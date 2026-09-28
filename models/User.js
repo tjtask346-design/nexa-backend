@@ -4,6 +4,11 @@ const userSchema = new mongoose.Schema({
     fullName: { type: String, required: true, trim: true, maxlength: 100 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     pin: { type: String, required: true },
+
+    // ─── TOTP (Two-Factor Auth) ───
+    totpSecret: { type: String, default: null, select: false },
+    totpEnabled: { type: Boolean, default: false },
+
     uid: { type: String, unique: true, sparse: true },
     accountNumber: { type: String, unique: true, required: true },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
