@@ -24,7 +24,10 @@ const userSchema = new mongoose.Schema({
     wallets: {
         bscAddress: { type: String, default: null },
         walletIndex: { type: Number, default: null },
-        xpub: { type: String, default: null }
+        xpub: { type: String, default: null },
+        // ─── LTC যোগ করা হলো ───
+        ltcXpub: { type: String, default: null },
+        ltcWalletIndex: { type: Number, default: null }
     },
     balanceUSD: { type: Number, default: 0 },
     ltcBalance: { type: Number, default: 0 },
