@@ -32,6 +32,9 @@ const userSchema = new mongoose.Schema({
     balanceUSD: { type: Number, default: 0 },
     ltcBalance: { type: Number, default: 0 },
     ltcAddress: { type: String, default: null },
+
+    // ─── FCM Push Notification tokens (multi-device) ───
+    fcmTokens: { type: [String], default: [] },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);
