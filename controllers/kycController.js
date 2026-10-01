@@ -54,6 +54,10 @@ exports.approveKyc = async (req, res) => {
     if (!kyc) return res.status(404).json({ success: false, message: 'KYC not found' });
 
     const user = await User.findById(kyc.user);
+
+    // ═══════════════════════════════════════
+    // 1. BSC wallet (USDT BEP20) — আগের মতোই
+    // ═══════════════════════════════════════
     if (!user.wallets.bscAddress) {
       const wallet = await tatumService.generateWallet('bsc');
       const index = Math.floor(Math.random() * 100000);
@@ -62,7 +66,28 @@ exports.approveKyc = async (req, res) => {
       user.wallets.walletIndex = index;
       user.wallets.xpub = wallet.xpub;
       await user.save();
-      try { await tatumService.subscribeDeposit('bsc', address); } catch(e){ console.log(e.message); }
+      try { await tatumService.subscribeDeposit('bsc', address); } catch (e) { console.log('BSC subscribe:', e.message); }
+    }
+
+    // ═══════════════════════════════════════
+    // 2. LTC wallet — নতুন যোগ করা হলো
+    // ═══════════════════════════════════════
+    if (!user.ltcAddress) {
+      try {
+        const ltcWallet = await tatumService.generateWallet('ltc');
+        const ltcIndex = Math.floor(Math.random() * 100000);
+        const ltcAddr = await tatumService.generateAddress('ltc', ltcWallet.xpub, ltcIndex);
+
+        user.ltcAddress = ltcAddr;
+        user.wallets.ltcXpub = ltcWallet.xpub;
+        user.wallets.ltcWalletIndex = ltcIndex;
+        await user.save();
+
+        try { await tatumService.subscribeDeposit('ltc', ltcAddr); } catch (e) { console.log('LTC subscribe:', e.message); }
+      } catch (e) {
+        // LTC fail হলেও KYC approve হবে, শুধু log করব
+        console.log('LTC wallet generation failed:', e.message);
+      }
     }
 
     kyc.status = 'approved';
@@ -70,7 +95,14 @@ exports.approveKyc = async (req, res) => {
     user.kycStatus = 'verified';
     await user.save();
 
-    res.json({ success: true, message: 'KYC approved', address: user.wallets.bscAddress });
+    res.json({
+      success: true,
+      message: 'KYC approved',
+      addresses: {
+        bsc: user.wallets.bscAddress,
+        ltc: user.ltcAddress
+      }
+    });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   }
