@@ -1,14 +1,17 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const notificationService = require('../services/notificationService');
 
-// POST /api/admin/approve-deposit - ATOMIC
 exports.approveDeposit = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { transactionId, action, adminNote } = req.body; // action: approved|rejected
-    if (!['approved','rejected'].includes(action)) return res.status(400).json({ success: false, message: 'Invalid action' });
+    const { transactionId, action, adminNote } = req.body;
+    if (!['approved','rejected'].includes(action)) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Invalid action' });
+    }
 
     const trx = await Transaction.findById(transactionId).session(session);
     if (!trx) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Transaction not found' }); }
@@ -25,6 +28,19 @@ exports.approveDeposit = async (req, res) => {
     await trx.save({ session });
 
     await session.commitTransaction();
+
+    // 🔔 Notify user
+    try {
+      const title = action === 'approved' ? 'Deposit Approved 💰' : 'Deposit Rejected';
+      const body = action === 'approved'
+        ? `$${Number(trx.amount).toFixed(2)} has been added to your balance.`
+        : (adminNote || `Your deposit of $${Number(trx.amount).toFixed(2)} was rejected.`);
+      await notificationService.notify(trx.user, {
+        title, body, type: 'deposit',
+        data: { screen: 'history', txId: String(trx._id) }
+      });
+    } catch (e) { console.log(e.message); }
+
     res.json({ success: true, message: `Deposit ${action}`, transaction: trx });
   } catch (e) {
     await session.abortTransaction();
@@ -32,13 +48,15 @@ exports.approveDeposit = async (req, res) => {
   } finally { session.endSession(); }
 };
 
-// POST /api/admin/approve-cashout - ATOMIC
 exports.approveCashOut = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { transactionId, action, adminNote } = req.body;
-    if (!['approved','rejected'].includes(action)) return res.status(400).json({ success: false, message: 'Invalid action' });
+    if (!['approved','rejected'].includes(action)) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Invalid action' });
+    }
 
     const trx = await Transaction.findById(transactionId).session(session);
     if (!trx) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Not found' }); }
@@ -59,6 +77,19 @@ exports.approveCashOut = async (req, res) => {
     await trx.save({ session });
 
     await session.commitTransaction();
+
+    // 🔔 Notify user
+    try {
+      const title = action === 'approved' ? 'Withdrawal Approved ✓' : 'Withdrawal Rejected';
+      const body = action === 'approved'
+        ? `Your withdrawal of $${Number(trx.amount).toFixed(2)} has been processed.`
+        : (adminNote || `Your withdrawal of $${Number(trx.amount).toFixed(2)} was rejected.`);
+      await notificationService.notify(trx.user, {
+        title, body, type: 'cashout',
+        data: { screen: 'history', txId: String(trx._id) }
+      });
+    } catch (e) { console.log(e.message); }
+
     res.json({ success: true, message: `Cashout ${action}`, transaction: trx });
   } catch (e) {
     await session.abortTransaction();
@@ -66,7 +97,6 @@ exports.approveCashOut = async (req, res) => {
   } finally { session.endSession(); }
 };
 
-// GET /api/admin/pending?type=deposit|cashout
 exports.getPendingTransactions = async (req, res) => {
   try {
     const { type } = req.query;
