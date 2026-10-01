@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Kyc = require('../models/Kyc');
 const tatumService = require('../services/tatumService');
+const notificationService = require('../services/notificationService');
 
 exports.submitKyc = async (req, res) => {
   try {
@@ -11,7 +12,6 @@ exports.submitKyc = async (req, res) => {
 
     const existing = await Kyc.findOne({ user: req.user._id });
 
-    // 🚫 Pending অবস্থায় নতুন submit বন্ধ
     if (existing && existing.status === 'pending') {
       return res.status(400).json({
         success: false,
@@ -19,7 +19,6 @@ exports.submitKyc = async (req, res) => {
       });
     }
 
-    // 🚫 Approved অবস্থায় নতুন submit বন্ধ
     if (existing && existing.status === 'approved') {
       return res.status(400).json({
         success: false,
@@ -27,7 +26,6 @@ exports.submitKyc = async (req, res) => {
       });
     }
 
-    // ✅ শুধু rejected হলেই পুরনো ডিলিট করে নতুন তৈরি
     if (existing) await Kyc.deleteOne({ _id: existing._id });
 
     const kyc = await Kyc.create({
@@ -40,6 +38,16 @@ exports.submitKyc = async (req, res) => {
       kycStatus: 'pending',
       kycDocs: { nidNumber, frontUrl, backUrl, selfieUrl }
     });
+
+    // 🔔 Notify user: KYC submitted
+    try {
+      await notificationService.notify(req.user._id, {
+        title: 'KYC Submitted ✓',
+        body: 'Your documents are under review. We\'ll notify you within 24–48 hours.',
+        type: 'kyc',
+        data: { screen: 'kyc' }
+      });
+    } catch (e) { console.log(e.message); }
 
     res.json({ success: true, message: 'KYC submitted', kyc });
   } catch (e) {
@@ -73,7 +81,6 @@ exports.approveKyc = async (req, res) => {
     const kyc = await Kyc.findById(kycId);
     if (!kyc) return res.status(404).json({ success: false, message: 'KYC not found' });
 
-    // ⚠️ শুধু pending অবস্থায় approve করা যাবে
     if (kyc.status !== 'pending') {
       return res.status(400).json({ success: false, message: `Cannot approve — current status: ${kyc.status}` });
     }
@@ -115,6 +122,16 @@ exports.approveKyc = async (req, res) => {
     user.kycStatus = 'verified';
     await user.save();
 
+    // 🔔 Notify user: KYC approved
+    try {
+      await notificationService.notify(user._id, {
+        title: 'KYC Approved 🎉',
+        body: 'Your identity is verified. Deposit & withdrawal are now unlocked.',
+        type: 'kyc',
+        data: { screen: 'kyc' }
+      });
+    } catch (e) { console.log(e.message); }
+
     res.json({
       success: true,
       message: 'KYC approved',
@@ -144,6 +161,16 @@ exports.rejectKyc = async (req, res) => {
     await kyc.save();
 
     await User.findByIdAndUpdate(kyc.user, { kycStatus: 'rejected' });
+
+    // 🔔 Notify user: KYC rejected
+    try {
+      await notificationService.notify(kyc.user, {
+        title: 'KYC Verification Failed',
+        body: adminNote.trim(),
+        type: 'kyc',
+        data: { screen: 'kyc' }
+      });
+    } catch (e) { console.log(e.message); }
 
     res.json({ success: true, message: 'KYC rejected', reason: adminNote.trim() });
   } catch (e) {
