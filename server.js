@@ -8,9 +8,9 @@ const connectDB = require('./config/db');
 const app = express();
 
 app.use(helmet());
-app.use(cors({ 
-  origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : '*', 
-  credentials: true 
+app.use(cors({
+  origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : '*',
+  credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -27,15 +27,17 @@ const authRoutes = require('./routes/authRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const kycRoutes = require('./routes/kycRoutes');
-const tatumRoutes = require('./routes/tatum'); // তুমি যে ৩ টা fix করলে তার মধ্যে tatum.js টাই এটা
+const tatumRoutes = require('./routes/tatum');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/transaction', transactionRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/tatum', tatumRoutes);
+app.use('/api/notifications', notificationRoutes);
 
-app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.1.0' }));
+app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.2.0' }));
 app.get('/health', (req,res)=> res.json({ status: 'ok' }));
 
 app.use((req,res)=> res.status(404).json({ success: false, message: 'Route not found' }));
