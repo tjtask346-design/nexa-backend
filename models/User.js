@@ -14,6 +14,10 @@ const userSchema = new mongoose.Schema({
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     balance: { type: Number, default: 0, min: 0 },
     emailVerified: { type: Boolean, default: false },
+
+    // ═══ NEW: Cloudinary avatar URL ═══
+    avatarUrl: { type: String, default: null },
+
     kycStatus: { type: String, enum: ['unverified', 'pending', 'verified', 'rejected'], default: 'unverified' },
     kycDocs: {
         nidNumber: { type: String },
@@ -25,7 +29,6 @@ const userSchema = new mongoose.Schema({
         bscAddress: { type: String, default: null },
         walletIndex: { type: Number, default: null },
         xpub: { type: String, default: null },
-        // ─── LTC যোগ করা হলো ───
         ltcXpub: { type: String, default: null },
         ltcWalletIndex: { type: Number, default: null }
     },
@@ -33,7 +36,6 @@ const userSchema = new mongoose.Schema({
     ltcBalance: { type: Number, default: 0 },
     ltcAddress: { type: String, default: null },
 
-    // ─── FCM Push Notification tokens (multi-device) ───
     fcmTokens: { type: [String], default: [] },
 }, { timestamps: true });
 
