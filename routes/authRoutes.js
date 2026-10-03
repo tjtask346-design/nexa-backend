@@ -16,4 +16,7 @@ router.post('/reset-pin-with-totp', authController.resetPinWithTotp);
 router.post('/save-fcm-token', auth, authController.saveFcmToken);
 router.post('/remove-fcm-token', auth, authController.removeFcmToken);
 
+// ─── Avatar (NEW) ───
+router.put('/avatar', auth, authController.updateAvatar);
+
 module.exports = router;
