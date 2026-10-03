@@ -56,7 +56,8 @@ exports.registerWithFirebase = async (req, res) => {
       user: {
         id: user._id, email: user.email, fullName: user.fullName,
         accountNumber: user.accountNumber, role: user.role,
-        balance: user.balance, totpEnabled: false
+        balance: user.balance, totpEnabled: false,
+        avatarUrl: user.avatarUrl
       }
     });
   } catch (err) {
@@ -84,7 +85,8 @@ exports.loginWithPin = async (req, res) => {
         user: {
           id: user._id, email: user.email, fullName: user.fullName,
           accountNumber: user.accountNumber, role: user.role,
-          balance: user.balance, totpEnabled: false
+          balance: user.balance, totpEnabled: false,
+          avatarUrl: user.avatarUrl
         }
       });
     }
@@ -106,7 +108,8 @@ exports.loginWithPin = async (req, res) => {
       user: {
         id: user._id, email: user.email, fullName: user.fullName,
         accountNumber: user.accountNumber, role: user.role,
-        balance: user.balance, uid: user.uid, totpEnabled: true
+        balance: user.balance, uid: user.uid, totpEnabled: true,
+        avatarUrl: user.avatarUrl
       }
     });
   } catch (err) {
@@ -211,7 +214,7 @@ exports.getMe = async (req, res) => {
 };
 
 /* ═══════════════════════════════════════
-   FCM TOKEN MANAGEMENT — নতুন
+   FCM TOKEN MANAGEMENT
    ═══════════════════════════════════════ */
 
 exports.saveFcmToken = async (req, res) => {
@@ -236,4 +239,26 @@ exports.removeFcmToken = async (req, res) => {
     });
     res.json({ success: true, message: 'Token removed' });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+/* ═══════════════════════════════════════
+   AVATAR — NEW
+   ═══════════════════════════════════════ */
+
+exports.updateAvatar = async (req, res) => {
+  try {
+    const { avatarUrl } = req.body;
+    if (!avatarUrl || typeof avatarUrl !== 'string') {
+      return res.status(400).json({ success: false, message: 'avatarUrl required' });
+    }
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { avatarUrl },
+      { new: true }
+    ).select('-pin -fcmTokens');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, message: 'Avatar updated', user });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
 };
