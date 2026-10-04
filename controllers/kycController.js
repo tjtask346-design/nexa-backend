@@ -49,6 +49,17 @@ exports.submitKyc = async (req, res) => {
       });
     } catch (e) { console.log(e.message); }
 
+    // 🔔 NEW: Notify all admins so admin app gets instant FCM
+    try {
+      const submitter = await User.findById(req.user._id).select('email fullName accountNumber');
+      await notificationService.notifyAllAdmins({
+        title: '🆕 New KYC Submission',
+        body: `${submitter?.email || 'A user'} submitted KYC for review.`,
+        type: 'kyc',
+        data: { screen: 'admin_kyc', userId: String(req.user._id) }
+      });
+    } catch (e) { console.log(e.message); }
+
     res.json({ success: true, message: 'KYC submitted', kyc });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
