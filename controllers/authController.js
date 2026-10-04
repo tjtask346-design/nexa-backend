@@ -57,7 +57,8 @@ exports.registerWithFirebase = async (req, res) => {
         id: user._id, email: user.email, fullName: user.fullName,
         accountNumber: user.accountNumber, role: user.role,
         balance: user.balance, totpEnabled: false,
-        avatarUrl: user.avatarUrl
+        avatarUrl: user.avatarUrl,
+        kycStatus: user.kycStatus  // ← NEW
       }
     });
   } catch (err) {
@@ -86,7 +87,8 @@ exports.loginWithPin = async (req, res) => {
           id: user._id, email: user.email, fullName: user.fullName,
           accountNumber: user.accountNumber, role: user.role,
           balance: user.balance, totpEnabled: false,
-          avatarUrl: user.avatarUrl
+          avatarUrl: user.avatarUrl,
+          kycStatus: user.kycStatus  // ← NEW
         }
       });
     }
@@ -109,7 +111,8 @@ exports.loginWithPin = async (req, res) => {
         id: user._id, email: user.email, fullName: user.fullName,
         accountNumber: user.accountNumber, role: user.role,
         balance: user.balance, uid: user.uid, totpEnabled: true,
-        avatarUrl: user.avatarUrl
+        avatarUrl: user.avatarUrl,
+        kycStatus: user.kycStatus  // ← NEW
       }
     });
   } catch (err) {
@@ -242,7 +245,7 @@ exports.removeFcmToken = async (req, res) => {
 };
 
 /* ═══════════════════════════════════════
-   AVATAR — NEW
+   AVATAR
    ═══════════════════════════════════════ */
 
 exports.updateAvatar = async (req, res) => {
