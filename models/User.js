@@ -5,7 +5,6 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     pin: { type: String, required: true },
 
-    // ─── TOTP (Two-Factor Auth) ───
     totpSecret: { type: String, default: null, select: false },
     totpEnabled: { type: Boolean, default: false },
 
@@ -15,7 +14,6 @@ const userSchema = new mongoose.Schema({
     balance: { type: Number, default: 0, min: 0 },
     emailVerified: { type: Boolean, default: false },
 
-    // Cloudinary avatar URL
     avatarUrl: { type: String, default: null },
 
     kycStatus: { type: String, enum: ['unverified', 'pending', 'verified', 'rejected'], default: 'unverified' },
@@ -38,9 +36,7 @@ const userSchema = new mongoose.Schema({
 
     fcmTokens: { type: [String], default: [] },
 
-    // ═══════════════════════════════════════
-    // NEW: BAN FIELDS (Admin panel এর জন্য)
-    // ═══════════════════════════════════════
+    // ═══ BAN FIELDS (Admin panel এর জন্য) ═══
     isBanned:   { type: Boolean, default: false },
     banReason:  { type: String,  default: '' },
     bannedAt:   { type: Date,    default: null },
