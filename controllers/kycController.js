@@ -39,7 +39,6 @@ exports.submitKyc = async (req, res) => {
       kycDocs: { nidNumber, frontUrl, backUrl, selfieUrl }
     });
 
-    // 🔔 Notify user: KYC submitted
     try {
       await notificationService.notify(req.user._id, {
         title: 'KYC Submitted ✓',
@@ -49,7 +48,6 @@ exports.submitKyc = async (req, res) => {
       });
     } catch (e) { console.log(e.message); }
 
-    // 🔔 NEW: Notify all admins so admin app gets instant FCM
     try {
       const submitter = await User.findById(req.user._id).select('email fullName accountNumber');
       await notificationService.notifyAllAdmins({
@@ -98,7 +96,6 @@ exports.approveKyc = async (req, res) => {
 
     const user = await User.findById(kyc.user);
 
-    // BSC wallet
     if (!user.wallets.bscAddress) {
       const wallet = await tatumService.generateWallet('bsc');
       const index = Math.floor(Math.random() * 100000);
@@ -110,7 +107,6 @@ exports.approveKyc = async (req, res) => {
       try { await tatumService.subscribeDeposit('bsc', address); } catch (e) { console.log('BSC subscribe:', e.message); }
     }
 
-    // LTC wallet
     if (!user.ltcAddress) {
       try {
         const ltcWallet = await tatumService.generateWallet('ltc');
@@ -133,7 +129,6 @@ exports.approveKyc = async (req, res) => {
     user.kycStatus = 'verified';
     await user.save();
 
-    // 🔔 Notify user: KYC approved
     try {
       await notificationService.notify(user._id, {
         title: 'KYC Approved 🎉',
@@ -173,7 +168,6 @@ exports.rejectKyc = async (req, res) => {
 
     await User.findByIdAndUpdate(kyc.user, { kycStatus: 'rejected' });
 
-    // 🔔 Notify user: KYC rejected
     try {
       await notificationService.notify(kyc.user, {
         title: 'KYC Verification Failed',
