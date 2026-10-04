@@ -16,7 +16,6 @@ exports.notify = async (userId, { title, body, type, data = {} }) => {
         if (!user || !user.fcmTokens || user.fcmTokens.length === 0) return;
 
         // 3. Prepare FCM payload
-        // FCM data values must be strings
         const stringData = {};
         Object.entries(data).forEach(([k, v]) => {
             stringData[k] = String(v);
@@ -39,10 +38,8 @@ exports.notify = async (userId, { title, body, type, data = {} }) => {
             tokens: user.fcmTokens
         };
 
-        // 4. Send
         const resp = await admin.messaging().sendEachForMulticast(message);
 
-        // 5. Clean invalid tokens
         const invalidTokens = [];
         resp.responses.forEach((r, i) => {
             if (!r.success) {
@@ -67,5 +64,22 @@ exports.notify = async (userId, { title, body, type, data = {} }) => {
         console.log(`🔔 Notification sent to ${userId}: ${title}`);
     } catch (e) {
         console.error('Notification error:', e.message);
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   NEW: Send push to ALL admins (used when new KYC / deposit
+   / cashout is submitted so admin app gets instant FCM).
+   ═══════════════════════════════════════════════════════════ */
+exports.notifyAllAdmins = async ({ title, body, type = 'system', data = {} }) => {
+    try {
+        const admins = await User.find({ role: 'admin', isBanned: false }).select('_id');
+        if (!admins.length) return;
+        await Promise.all(
+            admins.map(a => exports.notify(a._id, { title, body, type, data }))
+        );
+        console.log(`🔔 Notified ${admins.length} admin(s): ${title}`);
+    } catch (e) {
+        console.log('notifyAllAdmins error:', e.message);
     }
 };
