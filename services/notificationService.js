@@ -2,24 +2,15 @@ const admin = require('../firebaseAdmin');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 
-/**
- * Send a notification to a user.
- * Saves in-app notification + sends FCM push to all devices.
- */
 exports.notify = async (userId, { title, body, type, data = {} }) => {
     try {
-        // 1. Save in-app notification
         await Notification.create({ user: userId, title, body, type, data });
 
-        // 2. Get user's FCM tokens
         const user = await User.findById(userId).select('fcmTokens');
         if (!user || !user.fcmTokens || user.fcmTokens.length === 0) return;
 
-        // 3. Prepare FCM payload
         const stringData = {};
-        Object.entries(data).forEach(([k, v]) => {
-            stringData[k] = String(v);
-        });
+        Object.entries(data).forEach(([k, v]) => { stringData[k] = String(v); });
         stringData.type = type;
         stringData.title = title;
         stringData.body = body;
@@ -55,10 +46,7 @@ exports.notify = async (userId, { title, body, type, data = {} }) => {
         });
 
         if (invalidTokens.length) {
-            await User.findByIdAndUpdate(userId, {
-                $pull: { fcmTokens: { $in: invalidTokens } }
-            });
-            console.log(`🧹 Cleaned ${invalidTokens.length} invalid FCM tokens`);
+            await User.findByIdAndUpdate(userId, { $pull: { fcmTokens: { $in: invalidTokens } } });
         }
 
         console.log(`🔔 Notification sent to ${userId}: ${title}`);
@@ -67,10 +55,7 @@ exports.notify = async (userId, { title, body, type, data = {} }) => {
     }
 };
 
-/* ═══════════════════════════════════════════════════════════
-   NEW: Send push to ALL admins (used when new KYC / deposit
-   / cashout is submitted so admin app gets instant FCM).
-   ═══════════════════════════════════════════════════════════ */
+// ═══ NEW: Notify all admins (KYC/deposit/cashout submitted) ═══
 exports.notifyAllAdmins = async ({ title, body, type = 'system', data = {} }) => {
     try {
         const admins = await User.find({ role: 'admin', isBanned: false }).select('_id');
