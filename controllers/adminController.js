@@ -6,8 +6,6 @@ const Notification = require('../models/Notification');
 const admin = require('../firebaseAdmin');
 const notificationService = require('../services/notificationService');
 
-/* ═══ EXISTING: Deposit/Cashout approval + pending list ═══ */
-
 exports.approveDeposit = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -115,8 +113,6 @@ exports.getPendingTransactions = async (req, res) => {
     res.status(500).json({ success: false, message: e.message });
   }
 };
-
-/* ═══ NEW: USER MANAGEMENT ═══ */
 
 exports.stats = async (req, res) => {
   try {
@@ -273,20 +269,17 @@ exports.deleteUser = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    // 1) Delete Firebase user by uid
     if (user.uid) {
       try { await admin.auth().deleteUser(user.uid); }
       catch (e) { console.log('Firebase delete note:', e.message); }
     }
 
-    // 2) Wipe related Mongo docs
     await Promise.all([
       Kyc.deleteMany({ user: user._id }),
       Transaction.deleteMany({ user: user._id }),
       Notification.deleteMany({ user: user._id }),
     ]);
 
-    // 3) Delete the user
     await User.findByIdAndDelete(user._id);
 
     res.json({ success: true, message: 'User deleted from Firebase & MongoDB' });
