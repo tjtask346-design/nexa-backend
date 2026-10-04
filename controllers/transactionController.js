@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const notificationService = require('../services/notificationService');
@@ -17,6 +18,17 @@ exports.requestDeposit = async (req, res) => {
       user: req.user._id, type: 'deposit', amount, trxId,
       paymentMethodNumber, status: 'pending'
     });
+
+    // 🔔 NEW: notify admins
+    try {
+      const u = await User.findById(req.user._id).select('email');
+      await notificationService.notifyAllAdmins({
+        title: '🆕 New Deposit Request',
+        body: `${u?.email || 'A user'} requested a deposit of $${Number(amount).toFixed(2)}.`,
+        type: 'deposit',
+        data: { screen: 'admin_tx', txId: String(trx._id) }
+      });
+    } catch (e) { console.log(e.message); }
 
     res.json({ success: true, message: 'Deposit request submitted', transaction: trx });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -43,7 +55,6 @@ exports.sendMoney = async (req, res) => {
     if (amount < 1) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Min $1' }); }
 
     const sender = await User.findById(req.user._id).session(session);
-    const bcrypt = require('bcryptjs');
     const ok = await bcrypt.compare(pin, sender.pin);
     if (!ok) { await session.abortTransaction(); return res.status(401).json({ success: false, message: 'ভুল PIN' }); }
 
@@ -71,7 +82,6 @@ exports.sendMoney = async (req, res) => {
 
     await session.commitTransaction();
 
-    // 🔔 Notify receiver
     try {
       await notificationService.notify(receiver._id, {
         title: 'Money Received 💸',
@@ -102,6 +112,16 @@ exports.requestCashOut = async (req, res) => {
       user: user._id, type: 'cashout', amount,
       paymentMethodNumber, status: 'pending'
     });
+
+    // 🔔 NEW: notify admins
+    try {
+      await notificationService.notifyAllAdmins({
+        title: '🆕 New Withdrawal Request',
+        body: `${user.email} requested a withdrawal of $${Number(amount).toFixed(2)}.`,
+        type: 'cashout',
+        data: { screen: 'admin_tx', txId: String(trx._id) }
+      });
+    } catch (e) { console.log(e.message); }
 
     res.json({ success: true, message: 'Cashout requested', transaction: trx });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
