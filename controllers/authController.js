@@ -58,7 +58,7 @@ exports.registerWithFirebase = async (req, res) => {
         accountNumber: user.accountNumber, role: user.role,
         balance: user.balance, totpEnabled: false,
         avatarUrl: user.avatarUrl,
-        kycStatus: user.kycStatus  // ← NEW
+        kycStatus: user.kycStatus
       }
     });
   } catch (err) {
@@ -79,6 +79,18 @@ exports.loginWithPin = async (req, res) => {
     const isMatch = await bcrypt.compare(pin, user.pin);
     if (!isMatch) return res.status(401).json({ success: false, message: 'ভুল PIN' });
 
+    // ═══════════════════════════════════════════════════
+    // NEW: BAN CHECK — immediately reject banned users
+    // ═══════════════════════════════════════════════════
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        banned: true,
+        reason: user.banReason || 'Suspicious activity detected on your account.',
+        message: 'Account suspended'
+      });
+    }
+
     if (!user.totpEnabled || !user.totpSecret) {
       const token = signToken(user._id);
       return res.json({
@@ -88,7 +100,7 @@ exports.loginWithPin = async (req, res) => {
           accountNumber: user.accountNumber, role: user.role,
           balance: user.balance, totpEnabled: false,
           avatarUrl: user.avatarUrl,
-          kycStatus: user.kycStatus  // ← NEW
+          kycStatus: user.kycStatus
         }
       });
     }
@@ -112,7 +124,7 @@ exports.loginWithPin = async (req, res) => {
         accountNumber: user.accountNumber, role: user.role,
         balance: user.balance, uid: user.uid, totpEnabled: true,
         avatarUrl: user.avatarUrl,
-        kycStatus: user.kycStatus  // ← NEW
+        kycStatus: user.kycStatus
       }
     });
   } catch (err) {
@@ -212,6 +224,19 @@ exports.resetPinWithTotp = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-pin -fcmTokens');
+
+    // ═══════════════════════════════════════════════════
+    // NEW: BAN CHECK — force logout on app side
+    // ═══════════════════════════════════════════════════
+    if (user?.isBanned) {
+      return res.status(403).json({
+        success: false,
+        banned: true,
+        reason: user.banReason || 'Suspicious activity detected on your account.',
+        message: 'Account suspended'
+      });
+    }
+
     res.json({ success: true, user });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
