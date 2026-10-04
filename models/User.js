@@ -36,7 +36,6 @@ const userSchema = new mongoose.Schema({
 
     fcmTokens: { type: [String], default: [] },
 
-    // ═══ BAN FIELDS (Admin panel এর জন্য) ═══
     isBanned:   { type: Boolean, default: false },
     banReason:  { type: String,  default: '' },
     bannedAt:   { type: Date,    default: null },
