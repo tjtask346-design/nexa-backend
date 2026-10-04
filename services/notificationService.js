@@ -55,7 +55,6 @@ exports.notify = async (userId, { title, body, type, data = {} }) => {
     }
 };
 
-// ═══ NEW: Notify all admins (KYC/deposit/cashout submitted) ═══
 exports.notifyAllAdmins = async ({ title, body, type = 'system', data = {} }) => {
     try {
         const admins = await User.find({ role: 'admin', isBanned: false }).select('_id');
