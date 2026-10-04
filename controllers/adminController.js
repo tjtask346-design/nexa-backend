@@ -263,9 +263,12 @@ exports.setBan = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
+// ═══════════════════════════════════════════════════════
+// FIXED: Route uses :id but controller was reading :userId
+// ═══════════════════════════════════════════════════════
 exports.deleteUser = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.params.id || req.params.userId;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
