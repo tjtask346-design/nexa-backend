@@ -6,9 +6,7 @@ const Notification = require('../models/Notification');
 const admin = require('../firebaseAdmin');
 const notificationService = require('../services/notificationService');
 
-/* ═══════════════════════════════════════════════════════════
-   EXISTING: Deposit / Cashout approvals + pending list
-   ═══════════════════════════════════════════════════════════ */
+/* ═══ EXISTING: Deposit/Cashout approval + pending list ═══ */
 
 exports.approveDeposit = async (req, res) => {
   const session = await mongoose.startSession();
@@ -118,11 +116,8 @@ exports.getPendingTransactions = async (req, res) => {
   }
 };
 
-/* ═══════════════════════════════════════════════════════════
-   NEW: USER MANAGEMENT
-   ═══════════════════════════════════════════════════════════ */
+/* ═══ NEW: USER MANAGEMENT ═══ */
 
-// ─── Dashboard stats ───
 exports.stats = async (req, res) => {
   try {
     const [totalUsers, bannedUsers, pendingKyc, pendingTx, totalBalanceAgg] = await Promise.all([
@@ -140,7 +135,6 @@ exports.stats = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// ─── List / search users ───
 exports.listUsers = async (req, res) => {
   try {
     const { q = '', page = 1, limit = 20, banned } = req.query;
@@ -167,18 +161,19 @@ exports.listUsers = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// ─── Get one user with KYC + recent tx ───
 exports.getUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-pin -totpSecret -fcmTokens');
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    const kyc = await Kyc.findOne({ user: user._id });
-    const txs = await Transaction.find({ user: user._id }).sort({ createdAt: -1 }).limit(20);
+    const kyc = await Kyc.findOne({ user: user._id }).populate('user', 'email fullName accountNumber');
+    const txs = await Transaction.find({ user: user._id })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .populate('user', 'email fullName accountNumber');
     res.json({ success: true, user, kyc, transactions: txs });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// ─── Adjust balance (usdt = balance, ltc = ltcBalance, nexa = balance) ───
 exports.adjustBalance = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -245,7 +240,6 @@ exports.adjustBalance = async (req, res) => {
   } finally { session.endSession(); }
 };
 
-// ─── Ban / Unban ───
 exports.setBan = async (req, res) => {
   try {
     const { userId, ban, reason } = req.body;
@@ -273,7 +267,6 @@ exports.setBan = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// ─── Delete user (MongoDB + Firebase + related docs) ───
 exports.deleteUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -300,7 +293,6 @@ exports.deleteUser = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// ─── Send arbitrary notification to user ───
 exports.sendUserNotification = async (req, res) => {
   try {
     const { userId, title, body, type = 'system' } = req.body;
