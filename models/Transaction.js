@@ -9,8 +9,6 @@ const transactionSchema = new mongoose.Schema({
     receiverUid: { type: String },
     trxId: { type: String, unique: true, sparse: true },
     paymentMethodNumber: { type: String },
-
-    // ═══ NEW fields (used by admin controller) ═══
     adminNote: { type: String, default: '' },
     note:      { type: String, default: '' },
 }, { timestamps: true });
