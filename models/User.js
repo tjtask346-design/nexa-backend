@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
     balance: { type: Number, default: 0, min: 0 },
     emailVerified: { type: Boolean, default: false },
 
-    // ═══ NEW: Cloudinary avatar URL ═══
+    // Cloudinary avatar URL
     avatarUrl: { type: String, default: null },
 
     kycStatus: { type: String, enum: ['unverified', 'pending', 'verified', 'rejected'], default: 'unverified' },
@@ -37,6 +37,14 @@ const userSchema = new mongoose.Schema({
     ltcAddress: { type: String, default: null },
 
     fcmTokens: { type: [String], default: [] },
+
+    // ═══════════════════════════════════════
+    // NEW: BAN FIELDS (Admin panel এর জন্য)
+    // ═══════════════════════════════════════
+    isBanned:   { type: Boolean, default: false },
+    banReason:  { type: String,  default: '' },
+    bannedAt:   { type: Date,    default: null },
+    bannedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);
