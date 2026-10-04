@@ -15,10 +15,19 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-const limiter = rateLimit({ windowMs: 15*60*1000, max: 200, message: { success: false, message: 'Too many requests' } });
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 2000,
+  message: { success: false, message: 'Too many requests' }
+});
 app.use('/api/', limiter);
 
-const authLimiter = rateLimit({ windowMs: 15*60*1000, max: 30, message: { success: false, message: 'Too many auth attempts' } });
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  message: { success: false, message: 'Too many auth attempts' },
+  skip: (req) => req.originalUrl === '/api/auth/me' || req.originalUrl.startsWith('/api/auth/me?')
+});
 app.use('/api/auth/', authLimiter);
 
 connectDB();
@@ -37,7 +46,7 @@ app.use('/api/kyc', kycRoutes);
 app.use('/api/tatum', tatumRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.2.0' }));
+app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.3.0' }));
 app.get('/health', (req,res)=> res.json({ status: 'ok' }));
 
 app.use((req,res)=> res.status(404).json({ success: false, message: 'Route not found' }));
