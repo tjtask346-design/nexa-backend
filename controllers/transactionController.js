@@ -19,7 +19,6 @@ exports.requestDeposit = async (req, res) => {
       paymentMethodNumber, status: 'pending'
     });
 
-    // 🔔 NEW: notify admins
     try {
       const u = await User.findById(req.user._id).select('email');
       await notificationService.notifyAllAdmins({
@@ -113,7 +112,6 @@ exports.requestCashOut = async (req, res) => {
       paymentMethodNumber, status: 'pending'
     });
 
-    // 🔔 NEW: notify admins
     try {
       await notificationService.notifyAllAdmins({
         title: '🆕 New Withdrawal Request',
