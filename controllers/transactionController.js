@@ -16,7 +16,7 @@ exports.requestDeposit = async (req, res) => {
 
     const trx = await Transaction.create({
       user: req.user._id, type: 'deposit', amount, trxId,
-      paymentMethodNumber, status: 'pending'
+      paymentMethodNumber, status: 'pending', currency: 'usdt'
     });
 
     try {
@@ -45,52 +45,114 @@ exports.resolveUid = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
+// ═══════════════════════════════════════════════════════════
+// SEND MONEY — Now supports currency selection (USDT / LTC)
+// ═══════════════════════════════════════════════════════════
 exports.sendMoney = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { receiverUid, amount, pin } = req.body;
-    if (!receiverUid || !amount) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Receiver and amount required' }); }
-    if (amount < 1) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Min $1' }); }
+    const { receiverUid, amount, pin, currency = 'usdt' } = req.body;
+    const amt = Number(amount);
+
+    if (!receiverUid || !amt) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Receiver and amount required' });
+    }
+
+    if (!['usdt', 'ltc'].includes(currency)) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Invalid currency' });
+    }
+
+    // Min amounts
+    const MIN_AMOUNT = { usdt: 1.0, ltc: 0.0005 };
+    if (amt < MIN_AMOUNT[currency]) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: currency === 'ltc' ? 'Min 0.0005 LTC' : 'Min $1'
+      });
+    }
 
     const sender = await User.findById(req.user._id).session(session);
     const ok = await bcrypt.compare(pin, sender.pin);
-    if (!ok) { await session.abortTransaction(); return res.status(401).json({ success: false, message: 'ভুল PIN' }); }
+    if (!ok) {
+      await session.abortTransaction();
+      return res.status(401).json({ success: false, message: 'ভুল PIN' });
+    }
 
-    if (sender.balance < amount) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Insufficient balance' }); }
+    // Check balance for the selected currency
+    const senderBalance = currency === 'ltc'
+      ? (sender.ltcBalance || 0)
+      : sender.balance;
+
+    if (senderBalance < amt) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
 
     const receiver = await User.findOne({
       $or: [{ uid: receiverUid }, { accountNumber: receiverUid }, { email: receiverUid.toLowerCase() }]
     }).session(session);
 
-    if (!receiver) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Receiver not found' }); }
-    if (receiver._id.toString() === sender._id.toString()) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Cannot send to yourself' }); }
+    if (!receiver) {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, message: 'Receiver not found' });
+    }
+    if (receiver._id.toString() === sender._id.toString()) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Cannot send to yourself' });
+    }
 
-    sender.balance -= amount;
-    receiver.balance += amount;
+    // ═══ Update balances based on currency ═══
+    if (currency === 'ltc') {
+      sender.ltcBalance = (sender.ltcBalance || 0) - amt;
+      receiver.ltcBalance = (receiver.ltcBalance || 0) + amt;
+    } else {
+      sender.balance -= amt;
+      receiver.balance += amt;
+    }
     await sender.save({ session });
     await receiver.save({ session });
 
     const trxId = 'TRX' + crypto.randomInt(100000, 999999) + Date.now().toString().slice(-6);
 
     const trx = await Transaction.create([{
-      user: sender._id, type: 'transfer', amount, status: 'approved',
-      senderUid: sender.uid, receiverUid: receiver.uid, trxId,
-      note: `Send to ${receiver.email}`
+      user: sender._id,
+      type: 'transfer',
+      amount: amt,
+      currency,   // ⬅️ NEW
+      status: 'approved',
+      senderUid: sender.uid,
+      receiverUid: receiver.uid,
+      trxId,
+      note: `Send ${currency.toUpperCase()} to ${receiver.email}`
     }], { session });
 
     await session.commitTransaction();
 
+    // ═══ Notify receiver ═══
     try {
+      const currencyLabel = currency === 'ltc' ? 'LTC' : 'USDT';
+      const amountLabel = currency === 'ltc'
+        ? `${amt} LTC`
+        : `$${amt.toFixed(2)} USDT`;
+
       await notificationService.notify(receiver._id, {
         title: 'Money Received 💸',
-        body: `You received $${Number(amount).toFixed(2)} from ${sender.fullName || sender.email}.`,
+        body: `You received ${amountLabel} from ${sender.fullName || sender.email}.`,
         type: 'transfer',
-        data: { screen: 'history', txId: String(trx[0]._id) }
+        data: { screen: 'history', txId: String(trx[0]._id), currency }
       });
     } catch (e) { console.log(e.message); }
 
-    res.json({ success: true, message: 'Sent successfully', transaction: trx[0], newBalance: sender.balance });
+    res.json({
+      success: true,
+      message: 'Sent successfully',
+      transaction: trx[0],
+      newBalance: currency === 'ltc' ? sender.ltcBalance : sender.balance
+    });
   } catch (e) {
     await session.abortTransaction();
     res.status(500).json({ success: false, message: e.message });
@@ -108,7 +170,7 @@ exports.requestCashOut = async (req, res) => {
     if (user.balance < amount) return res.status(400).json({ success: false, message: 'Insufficient balance' });
 
     const trx = await Transaction.create({
-      user: user._id, type: 'cashout', amount,
+      user: user._id, type: 'cashout', amount, currency: 'usdt',
       paymentMethodNumber, status: 'pending'
     });
 
