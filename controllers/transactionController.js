@@ -46,7 +46,8 @@ exports.resolveUid = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// SEND MONEY — Now supports currency selection (USDT / LTC)
+// SEND MONEY — Internal Nexa transfer (USDT / LTC selectable)
+// Min values: USDT $0.02 · LTC 0.0001
 // ═══════════════════════════════════════════════════════════
 exports.sendMoney = async (req, res) => {
   const session = await mongoose.startSession();
@@ -65,13 +66,13 @@ exports.sendMoney = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid currency' });
     }
 
-    // Min amounts
-    const MIN_AMOUNT = { usdt: 1.0, ltc: 0.0005 };
+    // ═══ Very low min for internal transfers ═══
+    const MIN_AMOUNT = { usdt: 0.02, ltc: 0.0001 };
     if (amt < MIN_AMOUNT[currency]) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: currency === 'ltc' ? 'Min 0.0005 LTC' : 'Min $1'
+        message: currency === 'ltc' ? 'Min 0.0001 LTC' : 'Min $0.02'
       });
     }
 
@@ -82,7 +83,6 @@ exports.sendMoney = async (req, res) => {
       return res.status(401).json({ success: false, message: 'ভুল PIN' });
     }
 
-    // Check balance for the selected currency
     const senderBalance = currency === 'ltc'
       ? (sender.ltcBalance || 0)
       : sender.balance;
@@ -105,7 +105,7 @@ exports.sendMoney = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot send to yourself' });
     }
 
-    // ═══ Update balances based on currency ═══
+    // ═══ Update correct balance based on currency ═══
     if (currency === 'ltc') {
       sender.ltcBalance = (sender.ltcBalance || 0) - amt;
       receiver.ltcBalance = (receiver.ltcBalance || 0) + amt;
@@ -122,7 +122,7 @@ exports.sendMoney = async (req, res) => {
       user: sender._id,
       type: 'transfer',
       amount: amt,
-      currency,   // ⬅️ NEW
+      currency,
       status: 'approved',
       senderUid: sender.uid,
       receiverUid: receiver.uid,
@@ -132,7 +132,6 @@ exports.sendMoney = async (req, res) => {
 
     await session.commitTransaction();
 
-    // ═══ Notify receiver ═══
     try {
       const currencyLabel = currency === 'ltc' ? 'LTC' : 'USDT';
       const amountLabel = currency === 'ltc'
