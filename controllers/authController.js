@@ -220,7 +220,7 @@ exports.resetPinWithTotp = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-pin -fcmTokens');
+    const user = await User.findById(req.user._id).select('-pin -fcmTokens -adminFcmTokens');
 
     if (user?.isBanned) {
       return res.status(403).json({
@@ -235,20 +235,27 @@ exports.getMe = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+// ═══════════════════════════════════════════════════════════
+// FCM TOKEN — Separate for user app and admin app
+// ═══════════════════════════════════════════════════════════
 exports.saveFcmToken = async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token, app } = req.body;
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
-    await User.findByIdAndUpdate(req.user._id, { $addToSet: { fcmTokens: token } });
-    res.json({ success: true, message: 'Token saved' });
+
+    const field = (app === 'admin') ? 'adminFcmTokens' : 'fcmTokens';
+    await User.findByIdAndUpdate(req.user._id, { $addToSet: { [field]: token } });
+    res.json({ success: true, message: 'Token saved', app: app || 'user' });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
 exports.removeFcmToken = async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token, app } = req.body;
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
-    await User.findByIdAndUpdate(req.user._id, { $pull: { fcmTokens: token } });
+
+    const field = (app === 'admin') ? 'adminFcmTokens' : 'fcmTokens';
+    await User.findByIdAndUpdate(req.user._id, { $pull: { [field]: token } });
     res.json({ success: true, message: 'Token removed' });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
@@ -263,7 +270,7 @@ exports.updateAvatar = async (req, res) => {
       req.user._id,
       { avatarUrl },
       { new: true }
-    ).select('-pin -fcmTokens');
+    ).select('-pin -fcmTokens -adminFcmTokens');
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     res.json({ success: true, message: 'Avatar updated', user });
   } catch (e) {
