@@ -34,7 +34,9 @@ const userSchema = new mongoose.Schema({
     ltcBalance: { type: Number, default: 0 },
     ltcAddress: { type: String, default: null },
 
-    fcmTokens: { type: [String], default: [] },
+    // ═══ FCM Tokens ═══
+    fcmTokens: { type: [String], default: [] },        // Nexa user app tokens
+    adminFcmTokens: { type: [String], default: [] },   // Nexa Admin app tokens (NEW)
 
     isBanned:   { type: Boolean, default: false },
     banReason:  { type: String,  default: '' },
