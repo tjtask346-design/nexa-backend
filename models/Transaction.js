@@ -4,6 +4,8 @@ const transactionSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     type: { type: String, enum: ['deposit', 'transfer', 'cashout'], required: true },
     amount: { type: Number, required: true, min: 0 },
+    // ═══ NEW: currency for transfers ═══
+    currency: { type: String, enum: ['usdt', 'ltc'], default: 'usdt' },
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     senderUid: { type: String },
     receiverUid: { type: String },
