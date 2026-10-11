@@ -5,38 +5,64 @@ const tatum = axios.create({
   headers: { 'x-api-key': process.env.TATUM_API_KEY }
 });
 
-// ─── Tatum-এর chain নাম ম্যাপিং ───
-// BSC → 'bsc', LTC → 'litecoin'
 function chainPath(chain) {
   if (chain === 'bsc') return 'bsc';
   if (chain === 'ltc' || chain === 'litecoin') return 'litecoin';
   return chain;
 }
 
-// ─── Wallet generate (BSC ও LTC উভয়ের জন্য) ───
+// ─── Wallet generate ───
 exports.generateWallet = async (chain) => {
   const path = chainPath(chain);
   const { data } = await tatum.get(`/${path}/wallet`);
-  return data; // { mnemonic, xpub }
+  return data;
 };
 
-// ─── Address derive (xpub + index থেকে) ───
+// ─── Address derive ───
 exports.generateAddress = async (chain, xpub, index) => {
   const path = chainPath(chain);
   const { data } = await tatum.get(`/${path}/address/${xpub}/${index}`);
   return data.address;
 };
 
-// ─── Deposit subscription (BSC ও LTC উভয়ের জন্য) ───
+// ─── Deposit subscription — FIXED: validates BACKEND_URL ───
 exports.subscribeDeposit = async (chain, address) => {
+  const backendUrl = process.env.BACKEND_URL;
+  if (!backendUrl) {
+    throw new Error('BACKEND_URL env variable missing — cannot subscribe to Tatum webhook');
+  }
+
+  const webhookUrl = `${backendUrl}/api/tatum/webhook`;
+  console.log(`📡 Subscribing ${chain} ${address} → ${webhookUrl}`);
+
   const { data } = await tatum.post('/notification/subscribe', {
     type: 'ADDRESS_TRANSACTION',
     attr: {
       chain: chain === 'ltc' ? 'LTC' : 'BSC',
       address,
-      url: `${process.env.BACKEND_URL}/api/tatum/webhook`
+      url: webhookUrl
     }
   });
+
+  console.log(`✅ Subscribed ${chain} ${address}:`, JSON.stringify(data));
+  return data;
+};
+
+// ═══════════════════════════════════════════════════════════
+// NEW: Get address info (balance + incoming + outgoing)
+// ═══════════════════════════════════════════════════════════
+exports.getAddressInfo = async (chain, address) => {
+  const path = chainPath(chain);
+  const { data } = await tatum.get(`/${path}/address/${address}`);
+  return data;
+};
+
+// ═══════════════════════════════════════════════════════════
+// NEW: Get all transactions for an address
+// ═══════════════════════════════════════════════════════════
+exports.getAddressTransactions = async (chain, address, pageSize = 50) => {
+  const path = chainPath(chain);
+  const { data } = await tatum.get(`/${path}/transaction/address/${address}?pageSize=${pageSize}`);
   return data;
 };
 
@@ -52,8 +78,7 @@ exports.sendBEP20 = async (fromKey, to, amount) => {
   return data.txId;
 };
 
-// ─── LTC send (নতুন) ───
-// UTXO chain-এর জন্য address-based API সহজ
+// ─── LTC send ───
 exports.sendLTC = async (fromPrivateKey, fromAddress, toAddress, amount) => {
   const body = {
     fromAddress: [
