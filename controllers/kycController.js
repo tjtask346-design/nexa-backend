@@ -1,7 +1,10 @@
+// controllers/kycController.js
 const User = require('../models/User');
 const Kyc = require('../models/Kyc');
 const tatumService = require('../services/tatumService');
 const notificationService = require('../services/notificationService');
+const WalletCounter = require('../models/WalletCounter');
+const walletConfig = require('../config/wallets');
 
 exports.submitKyc = async (req, res) => {
   try {
@@ -91,34 +94,56 @@ exports.approveKyc = async (req, res) => {
     if (!kyc) return res.status(404).json({ success: false, message: 'KYC not found' });
 
     if (kyc.status !== 'pending') {
-      return res.status(400).json({ success: false, message: `Cannot approve — current status: ${kyc.status}` });
+      return res.status(400).json({
+        success: false,
+        message: `Cannot approve — current status: ${kyc.status}`
+      });
     }
 
     const user = await User.findById(kyc.user);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
+    // ═══════════════════════════════════════════════════════
+    // BSC deposit address — derived from MASTER_XPUB_BSC
+    // ═══════════════════════════════════════════════════════
     if (!user.wallets.bscAddress) {
-      const wallet = await tatumService.generateWallet('bsc');
-      const index = Math.floor(Math.random() * 100000);
-      const address = await tatumService.generateAddress('bsc', wallet.xpub, index);
-      user.wallets.bscAddress = address;
-      user.wallets.walletIndex = index;
-      user.wallets.xpub = wallet.xpub;
-      await user.save();
-      try { await tatumService.subscribeDeposit('bsc', address); } catch (e) { console.log('BSC subscribe:', e.message); }
+      if (!walletConfig.BSC.xpub) {
+        console.error('❌ MASTER_XPUB_BSC missing — cannot generate BSC address');
+      } else {
+        try {
+          const index = await WalletCounter.next('bsc');
+          const address = await tatumService.generateAddress('bsc', walletConfig.BSC.xpub, index);
+          user.wallets.bscAddress = address;
+          user.wallets.walletIndex = index;
+          user.wallets.xpub = walletConfig.BSC.xpub;
+          await user.save();
+          try { await tatumService.subscribeDeposit('bsc', address); }
+          catch (e) { console.log('BSC subscribe:', e.message); }
+        } catch (e) {
+          console.log('BSC wallet generation failed:', e.message);
+        }
+      }
     }
 
+    // ═══════════════════════════════════════════════════════
+    // LTC deposit address — derived from MASTER_XPUB_LTC
+    // ═══════════════════════════════════════════════════════
     if (!user.ltcAddress) {
-      try {
-        const ltcWallet = await tatumService.generateWallet('ltc');
-        const ltcIndex = Math.floor(Math.random() * 100000);
-        const ltcAddr = await tatumService.generateAddress('ltc', ltcWallet.xpub, ltcIndex);
-        user.ltcAddress = ltcAddr;
-        user.wallets.ltcXpub = ltcWallet.xpub;
-        user.wallets.ltcWalletIndex = ltcIndex;
-        await user.save();
-        try { await tatumService.subscribeDeposit('ltc', ltcAddr); } catch (e) { console.log('LTC subscribe:', e.message); }
-      } catch (e) {
-        console.log('LTC wallet generation failed:', e.message);
+      if (!walletConfig.LTC.xpub) {
+        console.error('❌ MASTER_XPUB_LTC missing — cannot generate LTC address');
+      } else {
+        try {
+          const ltcIndex = await WalletCounter.next('ltc');
+          const ltcAddr = await tatumService.generateAddress('ltc', walletConfig.LTC.xpub, ltcIndex);
+          user.ltcAddress = ltcAddr;
+          user.wallets.ltcXpub = walletConfig.LTC.xpub;
+          user.wallets.ltcWalletIndex = ltcIndex;
+          await user.save();
+          try { await tatumService.subscribeDeposit('ltc', ltcAddr); }
+          catch (e) { console.log('LTC subscribe:', e.message); }
+        } catch (e) {
+          console.log('LTC wallet generation failed:', e.message);
+        }
       }
     }
 
@@ -159,7 +184,10 @@ exports.rejectKyc = async (req, res) => {
     if (!kyc) return res.status(404).json({ success: false, message: 'KYC not found' });
 
     if (kyc.status !== 'pending') {
-      return res.status(400).json({ success: false, message: `Cannot reject — current status: ${kyc.status}` });
+      return res.status(400).json({
+        success: false,
+        message: `Cannot reject — current status: ${kyc.status}`
+      });
     }
 
     kyc.status = 'rejected';
