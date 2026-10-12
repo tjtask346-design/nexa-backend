@@ -123,12 +123,14 @@ router.post('/webhook', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// Withdraw on-chain — FIXED: currency-aware balance
+// Withdraw on-chain — currency-aware + min check
 // ═══════════════════════════════════════════════════════════
 router.post('/withdraw/onchain', auth, async (req, res) => {
   try {
     const { to, amount, currency = 'usdt' } = req.body;
     const amt = parseFloat(amount);
+
+    console.log(`💸 Withdraw request: ${currency} ${amt} → ${to}`);
 
     if (!to || !amt || amt <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid address or amount' });
@@ -137,8 +139,19 @@ router.post('/withdraw/onchain', auth, async (req, res) => {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    // ═══ FIX: Check correct balance based on currency ═══
+    // ═══ NEW: Min withdrawal check ═══
+    const MIN_WITHDRAW = { usdt: 3.0, ltc: 0.002 };
+    if (MIN_WITHDRAW[currency] && amt < MIN_WITHDRAW[currency]) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum ${currency.toUpperCase()} withdrawal is ${MIN_WITHDRAW[currency]}`
+      });
+    }
+
+    // ═══ Currency-aware balance check ═══
     const balance = currency === 'ltc' ? (user.ltcBalance || 0) : user.balance;
+    console.log(`💰 User balance: ${balance} ${currency.toUpperCase()}`);
+
     if (balance < amt) {
       return res.status(400).json({
         success: false,
@@ -149,24 +162,53 @@ router.post('/withdraw/onchain', auth, async (req, res) => {
     let txId;
     if (currency === 'ltc') {
       if (!process.env.HOT_WALLET_LTC_KEY || !process.env.HOT_WALLET_LTC_ADDRESS) {
+        console.log('❌ LTC hot wallet env vars missing');
         return res.status(500).json({
           success: false,
           message: 'LTC hot wallet not configured. Contact admin.'
         });
       }
-      txId = await tatumService.sendLTC(
-        process.env.HOT_WALLET_LTC_KEY,
-        process.env.HOT_WALLET_LTC_ADDRESS,
-        to, amt
-      );
 
-      // ═══ FIX: Deduct from LTC balance ═══
+      console.log(`🔐 Hot wallet: ${process.env.HOT_WALLET_LTC_ADDRESS}`);
+
+      try {
+        txId = await tatumService.sendLTC(
+          process.env.HOT_WALLET_LTC_KEY,
+          process.env.HOT_WALLET_LTC_ADDRESS,
+          to, amt
+        );
+        console.log(`✅ LTC sent. txId: ${txId}`);
+      } catch (tatumErr) {
+        console.error('❌ Tatum sendLTC failed:', tatumErr.message);
+        if (tatumErr.response) {
+          console.error('Tatum response:', JSON.stringify(tatumErr.response.data));
+        }
+        return res.status(400).json({
+          success: false,
+          message: `Tatum error: ${tatumErr.response?.data?.message || tatumErr.message}`
+        });
+      }
+
       user.ltcBalance = (user.ltcBalance || 0) - amt;
     } else {
       if (!process.env.HOT_WALLET_KEY) {
         return res.status(500).json({ success: false, message: 'BSC hot wallet not configured' });
       }
-      txId = await tatumService.sendBEP20(process.env.HOT_WALLET_KEY, to, amt);
+
+      try {
+        txId = await tatumService.sendBEP20(process.env.HOT_WALLET_KEY, to, amt);
+        console.log(`✅ USDT sent. txId: ${txId}`);
+      } catch (tatumErr) {
+        console.error('❌ Tatum sendBEP20 failed:', tatumErr.message);
+        if (tatumErr.response) {
+          console.error('Tatum response:', JSON.stringify(tatumErr.response.data));
+        }
+        return res.status(400).json({
+          success: false,
+          message: `Tatum error: ${tatumErr.response?.data?.message || tatumErr.message}`
+        });
+      }
+
       user.balance -= amt;
     }
     await user.save();
@@ -193,7 +235,7 @@ router.post('/withdraw/onchain', auth, async (req, res) => {
 
     res.json({ success: true, txId });
   } catch (e) {
-    console.error('Withdraw error:', e.message);
+    console.error('❌ Withdraw error:', e.message);
     res.status(500).json({ success: false, message: e.message });
   }
 });
