@@ -1,3 +1,4 @@
+// services/tatumService.js
 const axios = require('axios');
 
 const tatum = axios.create({
@@ -25,7 +26,7 @@ exports.generateAddress = async (chain, xpub, index) => {
   return data.address;
 };
 
-// ─── Deposit subscription — FIXED: validates BACKEND_URL ───
+// ─── Deposit subscription ───
 exports.subscribeDeposit = async (chain, address) => {
   const backendUrl = process.env.BACKEND_URL;
   if (!backendUrl) {
@@ -48,21 +49,19 @@ exports.subscribeDeposit = async (chain, address) => {
   return data;
 };
 
-// ═══════════════════════════════════════════════════════════
-// NEW: Get address info (balance + incoming + outgoing)
-// ═══════════════════════════════════════════════════════════
+// ─── Address info (balance + incoming + outgoing) ───
 exports.getAddressInfo = async (chain, address) => {
   const path = chainPath(chain);
   const { data } = await tatum.get(`/${path}/address/${address}`);
   return data;
 };
 
-// ═══════════════════════════════════════════════════════════
-// NEW: Get all transactions for an address
-// ═══════════════════════════════════════════════════════════
+// ─── All transactions for an address ───
 exports.getAddressTransactions = async (chain, address, pageSize = 50) => {
   const path = chainPath(chain);
-  const { data } = await tatum.get(`/${path}/transaction/address/${address}?pageSize=${pageSize}`);
+  const { data } = await tatum.get(
+    `/${path}/transaction/address/${address}?pageSize=${pageSize}`
+  );
   return data;
 };
 
@@ -81,21 +80,51 @@ exports.sendBEP20 = async (fromKey, to, amount) => {
 // ─── LTC send ───
 exports.sendLTC = async (fromPrivateKey, fromAddress, toAddress, amount) => {
   const body = {
-    fromAddress: [
-      {
-        address: fromAddress,
-        privateKey: fromPrivateKey
-      }
-    ],
-    to: [
-      {
-        address: toAddress,
-        value: amount
-      }
-    ],
-    fee: '0.0005',
+    fromAddress: [{ address: fromAddress, privateKey: fromPrivateKey }],
+    to: [{ address: toAddress, value: amount }],
+    fee: '0.0001',
     changeAddress: fromAddress
   };
   const { data } = await tatum.post('/litecoin/transaction', body);
+  return data.txId;
+};
+
+// ═══════════════════════════════════════════════════════════
+// NEW: Derive private key from master mnemonic + index
+// ═══════════════════════════════════════════════════════════
+exports.derivePrivateKey = async (chain, mnemonic, index) => {
+  const path = chainPath(chain);
+  const { data } = await tatum.get(`/${path}/wallet/priv`, {
+    params: { index, mnemonic }
+  });
+  return data.key;
+};
+
+// ═══════════════════════════════════════════════════════════
+// NEW: BEP20 token balance
+// ═══════════════════════════════════════════════════════════
+exports.getBEP20Balance = async (address, contractAddress) => {
+  try {
+    const { data } = await tatum.get(
+      `/bsc/bep20/balance/${address}/${contractAddress}`
+    );
+    const raw = data?.balance || '0';
+    return parseFloat(raw) / Math.pow(10, 18);
+  } catch (e) {
+    console.error('getBEP20Balance failed:', e.message);
+    return 0;
+  }
+};
+
+// ═══════════════════════════════════════════════════════════
+// NEW: Send native BNB (gas top-up)
+// ═══════════════════════════════════════════════════════════
+exports.sendBNB = async (fromPrivateKey, to, amount) => {
+  const { data } = await tatum.post('/bsc/transaction', {
+    fromPrivateKey,
+    to,
+    amount: String(amount),
+    currency: 'BSC'
+  });
   return data.txId;
 };
