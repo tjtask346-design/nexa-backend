@@ -53,7 +53,7 @@ router.post('/create-deposit-address', auth, adminAuth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// WEBHOOK — FIXED: LTC amount goes to ltcBalance, USDT to balance
+// WEBHOOK
 // ═══════════════════════════════════════════════════════════
 router.post('/webhook', async (req, res) => {
   try {
@@ -62,7 +62,6 @@ router.post('/webhook', async (req, res) => {
 
     if (!address) return res.sendStatus(200);
 
-    // Find user by address
     let user = await User.findOne({ 'wallets.bscAddress': address });
     let isLtc = false;
     if (!user) {
@@ -74,7 +73,6 @@ router.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Duplicate check
     const exists = await Transaction.findOne({ trxId: txId });
     if (exists) {
       console.log(`⚠️ Webhook: duplicate txId ${txId}`);
@@ -87,7 +85,6 @@ router.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Create transaction record
     await Transaction.create({
       user: user._id,
       type: 'deposit',
@@ -98,9 +95,6 @@ router.post('/webhook', async (req, res) => {
       paymentMethodNumber: address
     });
 
-    // ═══════════════════════════════════════════════════════
-    // FIXED: Credit to correct balance based on currency
-    // ═══════════════════════════════════════════════════════
     if (isLtc) {
       user.ltcBalance = (user.ltcBalance || 0) + depositAmount;
       console.log(`💰 LTC deposit: ${depositAmount} LTC → new balance ${user.ltcBalance}`);
@@ -110,7 +104,6 @@ router.post('/webhook', async (req, res) => {
     }
     await user.save();
 
-    // Notify user
     try {
       await notificationService.notify(user._id, {
         title: 'Deposit Received 💰',
@@ -130,36 +123,69 @@ router.post('/webhook', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// Withdraw on-chain
+// Withdraw on-chain — FIXED: currency-aware balance
 // ═══════════════════════════════════════════════════════════
 router.post('/withdraw/onchain', auth, async (req, res) => {
   try {
-    const { to, amount, currency } = req.body;
+    const { to, amount, currency = 'usdt' } = req.body;
+    const amt = parseFloat(amount);
+
+    if (!to || !amt || amt <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid address or amount' });
+    }
+
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    if (user.balance < amount) return res.status(400).json({ success: false, message: 'Insufficient balance' });
+
+    // ═══ FIX: Check correct balance based on currency ═══
+    const balance = currency === 'ltc' ? (user.ltcBalance || 0) : user.balance;
+    if (balance < amt) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient ${currency.toUpperCase()} balance. Available: ${balance}`
+      });
+    }
 
     let txId;
     if (currency === 'ltc') {
       if (!process.env.HOT_WALLET_LTC_KEY || !process.env.HOT_WALLET_LTC_ADDRESS) {
-        return res.status(500).json({ success: false, message: 'LTC hot wallet not configured' });
+        return res.status(500).json({
+          success: false,
+          message: 'LTC hot wallet not configured. Contact admin.'
+        });
       }
       txId = await tatumService.sendLTC(
         process.env.HOT_WALLET_LTC_KEY,
         process.env.HOT_WALLET_LTC_ADDRESS,
-        to, parseFloat(amount)
+        to, amt
       );
-    } else {
-      txId = await tatumService.sendBEP20(process.env.HOT_WALLET_KEY, to, amount);
-    }
 
-    user.balance -= parseFloat(amount);
+      // ═══ FIX: Deduct from LTC balance ═══
+      user.ltcBalance = (user.ltcBalance || 0) - amt;
+    } else {
+      if (!process.env.HOT_WALLET_KEY) {
+        return res.status(500).json({ success: false, message: 'BSC hot wallet not configured' });
+      }
+      txId = await tatumService.sendBEP20(process.env.HOT_WALLET_KEY, to, amt);
+      user.balance -= amt;
+    }
     await user.save();
+
+    await Transaction.create({
+      user: user._id,
+      type: 'cashout',
+      amount: amt,
+      currency,
+      status: 'approved',
+      trxId: txId,
+      paymentMethodNumber: to,
+      note: `Withdraw ${currency.toUpperCase()} to ${to.slice(0, 12)}...`
+    });
 
     try {
       await notificationService.notify(user._id, {
         title: 'Withdrawal Sent ✓',
-        body: `${currency === 'ltc' ? amount + ' LTC' : '$' + amount + ' USDT'} sent to ${to.slice(0, 10)}...`,
+        body: `${currency === 'ltc' ? amt + ' LTC' : '$' + amt + ' USDT'} sent to ${to.slice(0, 10)}...`,
         type: 'cashout',
         data: { screen: 'history', txId }
       });
@@ -167,12 +193,13 @@ router.post('/withdraw/onchain', auth, async (req, res) => {
 
     res.json({ success: true, txId });
   } catch (e) {
+    console.error('Withdraw error:', e.message);
     res.status(500).json({ success: false, message: e.message });
   }
 });
 
 // ═══════════════════════════════════════════════════════════
-// NEW: RE-SUBSCRIBE — Fix broken Tatum subscription
+// RE-SUBSCRIBE
 // ═══════════════════════════════════════════════════════════
 router.post('/resubscribe', auth, async (req, res) => {
   try {
@@ -199,7 +226,7 @@ router.post('/resubscribe', auth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// NEW: MANUAL SYNC — Recover missed deposits from blockchain
+// MANUAL SYNC
 // ═══════════════════════════════════════════════════════════
 router.post('/sync-balance', auth, async (req, res) => {
   try {
@@ -212,7 +239,6 @@ router.post('/sync-balance', auth, async (req, res) => {
 
     console.log(`🔄 Manual sync requested: ${chain} ${address}`);
 
-    // Fetch blockchain data
     const info = await tatumService.getAddressInfo(chain, address);
     console.log('Tatum address info:', JSON.stringify(info));
 
@@ -225,7 +251,6 @@ router.post('/sync-balance', auth, async (req, res) => {
     for (const tx of txs) {
       if (!tx.hash) continue;
 
-      // Sum incoming to this address
       let incomingAmount = 0;
       if (tx.outputs) {
         for (const out of tx.outputs) {
@@ -237,14 +262,12 @@ router.post('/sync-balance', auth, async (req, res) => {
 
       if (incomingAmount <= 0) continue;
 
-      // Skip if already recorded
       const exists = await Transaction.findOne({ trxId: tx.hash });
       if (exists) {
         skipped++;
         continue;
       }
 
-      // Create deposit record
       await Transaction.create({
         user: user._id,
         type: 'deposit',
@@ -258,7 +281,6 @@ router.post('/sync-balance', auth, async (req, res) => {
       credited += incomingAmount;
     }
 
-    // Update balance with newly credited amount
     if (credited > 0) {
       if (chain === 'ltc') {
         user.ltcBalance = (user.ltcBalance || 0) + credited;
