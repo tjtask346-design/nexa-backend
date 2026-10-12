@@ -39,6 +39,7 @@ const kycRoutes = require('./routes/kycRoutes');
 const tatumRoutes = require('./routes/tatum');
 const notificationRoutes = require('./routes/notificationRoutes');
 const versionRoutes = require('./routes/versionRoutes');
+const priceRoutes = require('./routes/priceRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/transaction', transactionRoutes);
@@ -47,8 +48,9 @@ app.use('/api/kyc', kycRoutes);
 app.use('/api/tatum', tatumRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', versionRoutes);
+app.use('/api', priceRoutes);
 
-app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.4.0' }));
+app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.5.0' }));
 app.get('/health', (req,res)=> res.json({ status: 'ok' }));
 
 app.use((req,res)=> res.status(404).json({ success: false, message: 'Route not found' }));
