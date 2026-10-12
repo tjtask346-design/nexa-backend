@@ -1,3 +1,4 @@
+// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -40,6 +41,8 @@ const tatumRoutes = require('./routes/tatum');
 const notificationRoutes = require('./routes/notificationRoutes');
 const versionRoutes = require('./routes/versionRoutes');
 const priceRoutes = require('./routes/priceRoutes');
+const sweeperRoutes = require('./routes/sweeperRoutes');  // ⬅️ NEW
+const sweeperJob = require('./jobs/sweeperJob');          // ⬅️ NEW
 
 app.use('/api/auth', authRoutes);
 app.use('/api/transaction', transactionRoutes);
@@ -49,12 +52,23 @@ app.use('/api/tatum', tatumRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', versionRoutes);
 app.use('/api', priceRoutes);
+app.use('/api/admin/sweeper', sweeperRoutes);             // ⬅️ NEW
 
-app.get('/', (req,res)=> res.json({ success: true, message: '🚀 Nexa Wallet API Running', version: '2.5.0' }));
-app.get('/health', (req,res)=> res.json({ status: 'ok' }));
+app.get('/', (req, res) => res.json({
+  success: true,
+  message: '🚀 Nexa Wallet API Running',
+  version: '2.5.0'
+}));
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-app.use((req,res)=> res.status(404).json({ success: false, message: 'Route not found' }));
-app.use((err,req,res,next)=>{ console.error(err); res.status(500).json({ success: false, message: err.message }); });
+app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found' }));
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ success: false, message: err.message });
+});
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', ()=> console.log(`🚀 Server running on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on ${PORT}`);
+  sweeperJob.start();                                     // ⬅️ NEW
+});
