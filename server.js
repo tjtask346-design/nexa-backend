@@ -8,6 +8,9 @@ const connectDB = require('./config/db');
 
 const app = express();
 
+// ⬇ Render reverse proxy এর পেছনে trust proxy set করা জরুরি
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : '*',
@@ -41,8 +44,8 @@ const tatumRoutes = require('./routes/tatum');
 const notificationRoutes = require('./routes/notificationRoutes');
 const versionRoutes = require('./routes/versionRoutes');
 const priceRoutes = require('./routes/priceRoutes');
-const sweeperRoutes = require('./routes/sweeperRoutes');  // ⬅️ NEW
-const sweeperJob = require('./jobs/sweeperJob');          // ⬅️ NEW
+const sweeperRoutes = require('./routes/sweeperRoutes');
+const sweeperJob = require('./jobs/sweeperJob');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/transaction', transactionRoutes);
@@ -52,7 +55,7 @@ app.use('/api/tatum', tatumRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', versionRoutes);
 app.use('/api', priceRoutes);
-app.use('/api/admin/sweeper', sweeperRoutes);             // ⬅️ NEW
+app.use('/api/admin/sweeper', sweeperRoutes);
 
 app.get('/', (req, res) => res.json({
   success: true,
@@ -70,5 +73,5 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on ${PORT}`);
-  sweeperJob.start();                                     // ⬅️ NEW
+  sweeperJob.start();
 });
