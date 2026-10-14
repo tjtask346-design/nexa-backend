@@ -9,6 +9,7 @@ const connectDB = require('./config/db');
 const app = express();
 
 // ⬇ Render reverse proxy এর পেছনে trust proxy set করা জরুরি
+// এটা না থাকলে express-rate-limit সঠিকভাবে IP চিনতে পারে না
 app.set('trust proxy', 1);
 
 app.use(helmet());
