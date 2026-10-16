@@ -14,7 +14,7 @@ function chainPath(chain) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// WALLET / ADDRESS / KEY DERIVATION (v3)
+// WALLET / ADDRESS (v3)
 // ═══════════════════════════════════════════════════════════
 exports.generateWallet = async (chain) => {
   const path = chainPath(chain);
@@ -28,33 +28,36 @@ exports.generateAddress = async (chain, xpub, index) => {
   return data.address;
 };
 
+// ═══════════════════════════════════════════════════════════
+// FIX #1: derivePrivateKey — POST (was GET)
+// ═══════════════════════════════════════════════════════════
 exports.derivePrivateKey = async (chain, mnemonic, index) => {
   const path = chainPath(chain);
-  const { data } = await tatum.get(`/v3/${path}/wallet/priv`, {
-    params: { index, mnemonic }
+  const { data } = await tatum.post(`/v3/${path}/wallet/priv`, {
+    index: Number(index),
+    mnemonic
   });
   return data.key;
 };
 
 // ═══════════════════════════════════════════════════════════
-// ADDRESS BALANCE — CORRECT v3 PATHS
+// ADDRESS BALANCE (v3)
 // ═══════════════════════════════════════════════════════════
 exports.getAddressInfo = async (chain, address) => {
   const path = chainPath(chain);
 
-  // For UTXO chains (LTC / DOGE)
   if (chain === 'ltc' || chain === 'litecoin' || chain === 'doge' || chain === 'dogecoin') {
     const { data } = await tatum.get(`/v3/${path}/address/balance/${address}`);
     return { balance: String(data?.balance ?? '0') };
   }
 
-  // For BSC (native BNB balance)
+  // BSC native (BNB)
   const { data } = await tatum.get(`/v3/${path}/account/balance/${address}`);
   return { balance: String(data?.balance ?? '0') };
 };
 
 // ═══════════════════════════════════════════════════════════
-// TRANSACTION HISTORY
+// TRANSACTION HISTORY (v3)
 // ═══════════════════════════════════════════════════════════
 exports.getAddressTransactions = async (chain, address, pageSize = 50) => {
   const path = chainPath(chain);
@@ -65,7 +68,7 @@ exports.getAddressTransactions = async (chain, address, pageSize = 50) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// DEPOSIT SUBSCRIPTION (v3 — correct endpoint)
+// SUBSCRIPTION — v3 with error body logging
 // ═══════════════════════════════════════════════════════════
 exports.subscribeDeposit = async (chain, address) => {
   const backendUrl = process.env.BACKEND_URL;
@@ -74,7 +77,6 @@ exports.subscribeDeposit = async (chain, address) => {
   const webhookUrl = `${backendUrl}/api/tatum/webhook`;
   console.log(`📡 Subscribing ${chain} ${address} → ${webhookUrl}`);
 
-  // UTXO chains use 'UTXO' type, EVM chains use 'ADDRESS_TRANSACTION'
   const isUtxo = ['ltc', 'litecoin', 'doge', 'dogecoin'].includes(chain);
   const chainCode = chain === 'ltc' ? 'LTC'
                   : chain === 'doge' ? 'DOGE'
@@ -98,29 +100,63 @@ exports.subscribeDeposit = async (chain, address) => {
         }
       };
 
-  const { data } = await tatum.post('/v3/subscription', body);
-  console.log(`✅ Subscribed ${chain} ${address}:`, JSON.stringify(data));
-  return data;
+  try {
+    const { data } = await tatum.post('/v3/subscription', body);
+    console.log(`✅ Subscribed ${chain} ${address}:`, JSON.stringify(data));
+    return data;
+  } catch (e) {
+    // Log FULL error body so we can see what Tatum complains about
+    console.error(`❌ Subscribe ${chain} failed:`, e.response?.status);
+    console.error('   Tatum response body:', JSON.stringify(e.response?.data));
+    console.error('   Request body sent:', JSON.stringify(body));
+    throw e;
+  }
 };
 
 // ═══════════════════════════════════════════════════════════
-// BEP20 TOKEN BALANCE (USDT) — v3 correct path
+// FIX #2: getBEP20Balance — v4 endpoint
 // ═══════════════════════════════════════════════════════════
 exports.getBEP20Balance = async (address, contractAddress) => {
   try {
-    const { data } = await tatum.get(
-      `/v3/bsc/bep20/balance/${address}/${contractAddress}`
-    );
-    const raw = data?.balance || '0';
-    return parseFloat(raw) / Math.pow(10, 18);
+    const { data } = await tatum.get('/v4/data/balances', {
+      params: {
+        chain: 'bsc-mainnet',
+        addresses: address,
+        tokenTypes: 'fungible'
+      }
+    });
+
+    const list = Array.isArray(data) ? data : (data?.balances || data?.data || []);
+    if (!list.length) {
+      // Log for debug
+      console.log('getBEP20Balance response (empty):', JSON.stringify(data).slice(0, 300));
+      return 0;
+    }
+
+    const found = list.find(t => {
+      const tokenAddr = (t.tokenAddress || t.contractAddress || t.asset || '').toLowerCase();
+      return tokenAddr === contractAddress.toLowerCase();
+    });
+
+    if (!found) {
+      console.log('USDT not found in token list. Sample:', JSON.stringify(list[0] || {}).slice(0, 300));
+      return 0;
+    }
+
+    const raw = found.balance || found.amount || '0';
+    const decimals = found.decimals ?? 18;
+    return parseFloat(raw) / Math.pow(10, decimals);
   } catch (e) {
     console.error('getBEP20Balance failed:', e.response?.status, e.message);
+    if (e.response?.data) {
+      console.error('   Tatum response:', JSON.stringify(e.response.data).slice(0, 300));
+    }
     return 0;
   }
 };
 
 // ═══════════════════════════════════════════════════════════
-// SEND — v3 (still active)
+// SEND (v3)
 // ═══════════════════════════════════════════════════════════
 exports.sendBEP20 = async (fromKey, to, amount) => {
   const key = fromKey.startsWith('0x') ? fromKey : '0x' + fromKey;
