@@ -1,7 +1,6 @@
 // services/tatumService.js
 const axios = require('axios');
 
-// Base URL এখন https://api.tatum.io (v3/v4 দুইটাই এখান থেকে চলবে)
 const tatum = axios.create({
   baseURL: 'https://api.tatum.io',
   headers: { 'x-api-key': process.env.TATUM_API_KEY }
@@ -10,35 +9,30 @@ const tatum = axios.create({
 function chainPath(chain) {
   if (chain === 'bsc') return 'bsc';
   if (chain === 'ltc' || chain === 'litecoin') return 'litecoin';
+  if (chain === 'doge' || chain === 'dogecoin') return 'dogecoin';
   return chain;
 }
 
-// v4 chain identifier
 function v4ChainId(chain) {
   if (chain === 'ltc' || chain === 'litecoin') return 'litecoin-mainnet';
+  if (chain === 'doge' || chain === 'dogecoin') return 'dogecoin-mainnet';
   if (chain === 'bsc') return 'bsc-mainnet';
   return chain;
 }
 
-// ═══════════════════════════════════════════════════════════
-// WALLET (still v3 — not migrated by Tatum)
-// ═══════════════════════════════════════════════════════════
-
-// ─── Wallet generate ───
+// ─── Wallet / Address / Key derivation (v3 — still active) ───
 exports.generateWallet = async (chain) => {
   const path = chainPath(chain);
   const { data } = await tatum.get(`/v3/${path}/wallet`);
   return data;
 };
 
-// ─── Address derive ───
 exports.generateAddress = async (chain, xpub, index) => {
   const path = chainPath(chain);
   const { data } = await tatum.get(`/v3/${path}/address/${xpub}/${index}`);
   return data.address;
 };
 
-// ─── Derive private key from mnemonic + index ───
 exports.derivePrivateKey = async (chain, mnemonic, index) => {
   const path = chainPath(chain);
   const { data } = await tatum.get(`/v3/${path}/wallet/priv`, {
@@ -47,14 +41,10 @@ exports.derivePrivateKey = async (chain, mnemonic, index) => {
   return data.key;
 };
 
-// ═══════════════════════════════════════════════════════════
-// NOTIFICATION (v4)
-// ═══════════════════════════════════════════════════════════
+// ─── Deposit subscription (v4) ───
 exports.subscribeDeposit = async (chain, address) => {
   const backendUrl = process.env.BACKEND_URL;
-  if (!backendUrl) {
-    throw new Error('BACKEND_URL env variable missing — cannot subscribe to Tatum webhook');
-  }
+  if (!backendUrl) throw new Error('BACKEND_URL missing');
 
   const webhookUrl = `${backendUrl}/api/tatum/webhook`;
   console.log(`📡 Subscribing ${chain} ${address} → ${webhookUrl}`);
@@ -62,27 +52,22 @@ exports.subscribeDeposit = async (chain, address) => {
   const { data } = await tatum.post('/v4/subscription?type=mainnet', {
     type: 'ADDRESS_EVENT',
     attr: {
-      chain: chain === 'ltc' ? 'LTC' : 'BSC',
+      chain: chain === 'ltc' ? 'LTC' : chain === 'doge' ? 'DOGE' : 'BSC',
       address,
       url: webhookUrl
     }
   });
-
   console.log(`✅ Subscribed ${chain} ${address}:`, JSON.stringify(data));
   return data;
 };
 
-// ═══════════════════════════════════════════════════════════
-// ADDRESS INFO (v4 — unified native balance endpoint)
-// ═══════════════════════════════════════════════════════════
+// ─── Native balance (v4) ───
 exports.getAddressInfo = async (chain, address) => {
   const chainId = v4ChainId(chain);
   try {
     const { data } = await tatum.get('/v4/data/blockchains/balance', {
       params: { chain: chainId, address }
     });
-    // v4 response may vary — log for debugging
-    // Expected shape: { balance: "123.456" } or { balances: [...] }
     const raw = data?.balance ?? data?.balances?.[0]?.balance ?? '0';
     return { balance: String(raw) };
   } catch (e) {
@@ -91,28 +76,19 @@ exports.getAddressInfo = async (chain, address) => {
   }
 };
 
-// ═══════════════════════════════════════════════════════════
-// TRANSACTIONS (v4 — UTXO history for LTC)
-// ═══════════════════════════════════════════════════════════
+// ─── Transaction history (v4 for UTXO, v3 for BSC fallback) ───
 exports.getAddressTransactions = async (chain, address, pageSize = 50) => {
   const chainId = v4ChainId(chain);
 
-  // LTC is UTXO-based
-  if (chain === 'ltc' || chain === 'litecoin') {
+  if (chain === 'ltc' || chain === 'litecoin' || chain === 'doge' || chain === 'dogecoin') {
     const { data } = await tatum.get(
       '/v4/data/blockchains/transaction/history/utxos',
-      {
-        params: {
-          chain: chainId,
-          addresses: address,
-          pageSize
-        }
-      }
+      { params: { chain: chainId, addresses: address, pageSize } }
     );
     return data?.transactions || data?.data || [];
   }
 
-  // BSC (EVM-based) fallback — keep v3 for now as v4 EVM history uses different path
+  // BSC still uses v3 for history (not yet migrated in v4 UTXO endpoint)
   const path = chainPath(chain);
   const { data } = await tatum.get(
     `/v3/${path}/transaction/address/${address}?pageSize=${pageSize}`
@@ -120,12 +96,9 @@ exports.getAddressTransactions = async (chain, address, pageSize = 50) => {
   return data;
 };
 
-// ═══════════════════════════════════════════════════════════
-// BEP20 TOKEN BALANCE (v4 — wallet portfolio)
-// ═══════════════════════════════════════════════════════════
+// ─── BEP20 token balance (v4) ───
 exports.getBEP20Balance = async (address, contractAddress) => {
   try {
-    // v4 endpoint: /v4/data/balances
     const { data } = await tatum.get('/v4/data/balances', {
       params: {
         chain: 'bsc-mainnet',
@@ -134,14 +107,12 @@ exports.getBEP20Balance = async (address, contractAddress) => {
       }
     });
 
-    // response shape can be array or object
     const list = Array.isArray(data) ? data : (data?.balances || data?.data || []);
     const found = list.find(t =>
       (t.tokenAddress || t.contractAddress || '').toLowerCase() === contractAddress.toLowerCase()
     );
 
     if (!found) return 0;
-
     const raw = found.balance || found.amount || '0';
     const decimals = found.decimals ?? 18;
     return parseFloat(raw) / Math.pow(10, decimals);
@@ -151,9 +122,7 @@ exports.getBEP20Balance = async (address, contractAddress) => {
   }
 };
 
-// ═══════════════════════════════════════════════════════════
-// SEND (still v3 — not migrated)
-// ═══════════════════════════════════════════════════════════
+// ─── Send (v3 — still active) ───
 exports.sendBEP20 = async (fromKey, to, amount) => {
   const key = fromKey.startsWith('0x') ? fromKey : '0x' + fromKey;
   const { data } = await tatum.post('/v3/bsc/bep20/transaction', {
